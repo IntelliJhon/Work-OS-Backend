@@ -20,6 +20,7 @@
     "@bull-board/api": "^7.1.5",
     "@bull-board/express": "^7.1.5",
     "@neondatabase/serverless": "^1.1.0",
+    "@types/ws": "^8.18.1",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.76.10",
     "cloudinary": "^2.10.0",
@@ -38,6 +39,7 @@
     "socket.io": "^4.8.3",
     "streamifier": "^0.1.1",
     "uuid": "^14.0.0",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
