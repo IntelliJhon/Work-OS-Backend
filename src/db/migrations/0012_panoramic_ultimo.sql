@@ -1,0 +1,1 @@
+ALTER TABLE "notifications" ADD COLUMN "priority" varchar(50) DEFAULT 'info' NOT NULL;

@@ -1,0 +1,41 @@
+### Base URL
+@baseUrl = http://localhost:5000/api
+
+### 1. Login to get Tokens
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@acme.com",
+  "password": "Password123!"
+}
+
+### Store the access token from the response
+@accessToken = {{login.response.body.accessToken}}
+@refreshToken = {{login.response.body.refreshToken}}
+@userId = {{login.response.body.user.id}}
+
+### 2. Refresh Token
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "userId": "{{userId}}",
+  "refreshToken": "{{refreshToken}}"
+}
+
+### 3. Create a Task (requires admin)
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "storyId": "00000000-0000-0000-0000-000000000000",
+  "name": "Implement RBAC Middleware",
+  "status": "to_do"
+}
+
+### 4. List Tasks
+GET {{baseUrl}}/tasks
+Authorization: Bearer {{accessToken}}
