@@ -22,4 +22,4 @@ COPY --from=builder /app/src/db/migrations ./src/db/migrations
 # Expose backend port
 EXPOSE 5000
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npm run db:migrate:prod && npm start"]
