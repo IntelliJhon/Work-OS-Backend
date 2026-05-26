@@ -7,8 +7,8 @@ export const createActivitySchema = z.object({
     title: z.string().min(1).max(255),
     isSprintRelevant: z.boolean().default(false),
     frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']).optional().nullable(),
-    startDate: z.string().datetime({ offset: true }).optional().nullable(),
-    endDate: z.string().datetime({ offset: true }).optional().nullable(),
+    startDate: z.string().optional().nullable(),
+    endDate: z.string().optional().nullable(),
   }),
 });
 
@@ -22,7 +22,7 @@ export const updateActivitySchema = z.object({
     title: z.string().min(1).max(255).optional(),
     isSprintRelevant: z.boolean().optional(),
     frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']).optional().nullable(),
-    startDate: z.string().datetime({ offset: true }).optional().nullable(),
-    endDate: z.string().datetime({ offset: true }).optional().nullable(),
+    startDate: z.string().optional().nullable(),
+    endDate: z.string().optional().nullable(),
   }),
 });

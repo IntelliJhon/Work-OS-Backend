@@ -141,6 +141,13 @@
       "when": 1748257800000,
       "tag": "0019_fix_activities_rls_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1748261400000,
+      "tag": "0020_disable_activities_sprints_rls",
+      "breakpoints": true
     }
   ]
 }
