@@ -9,16 +9,12 @@ export class SprintsService {
     if (!sprint) throw new NotFoundError('Sprint not found');
     if (sprint.status !== 'planning') throw new BadRequestError('Can only start sprints in planning state');
 
-    const phase = await SprintsRepository.getPhaseById(tx, tenantId, sprint.phaseId);
-    if (!phase) throw new NotFoundError('Parent phase not found');
+    const activity = await SprintsRepository.getActivityById(tx, tenantId, sprint.activityId);
+    if (!activity) throw new NotFoundError('Parent activity not found');
     
-    // Rule: sprint cannot start if parent phase is locked, pending, completed
-    if (phase.status !== 'active') throw new BadRequestError('Cannot start sprint unless parent phase is active');
-    if (phase.isLocked) throw new BadRequestError('Cannot start sprint in a locked phase');
-
-    // Rule: no overlapping active sprint (default disabled)
-    const activeSprints = await SprintsRepository.getActiveSprintsInPhase(tx, tenantId, sprint.phaseId);
-    if (activeSprints.length > 0) throw new SprintConflictError('Another sprint is already active in this phase');
+    // Rule: no overlapping active sprint in this activity
+    const activeSprints = await SprintsRepository.getActiveSprintsInActivity(tx, tenantId, sprint.activityId);
+    if (activeSprints.length > 0) throw new SprintConflictError('Another sprint cycle is already active in this activity');
 
     const updatedSprint = await SprintsRepository.updateSprintStatus(tx, tenantId, sprintId, 'active');
     await WorkflowInvariantService.validateWorkflowState(tx, tenantId, sprint.projectId);
@@ -52,14 +48,13 @@ export class SprintsService {
     return updatedSprint;
   }
 
-
   static async reopenSprint(tx: any, tenantId: string, userId: string, ipAddress: string, sprintId: string) {
     const sprint = await SprintsRepository.getSprintById(tx, tenantId, sprintId);
     if (!sprint) throw new NotFoundError('Sprint not found');
     if (sprint.status !== 'closed') throw new BadRequestError('Can only reopen closed sprints');
 
-    const phase = await SprintsRepository.getPhaseById(tx, tenantId, sprint.phaseId);
-    if (phase.status !== 'active') throw new BadRequestError('Cannot reopen sprint: parent phase is no longer active');
+    const activity = await SprintsRepository.getActivityById(tx, tenantId, sprint.activityId);
+    if (!activity) throw new NotFoundError('Parent activity not found');
 
     const updatedSprint = await SprintsRepository.updateSprintStatus(tx, tenantId, sprintId, 'active');
     await WorkflowInvariantService.validateWorkflowState(tx, tenantId, sprint.projectId);
@@ -96,7 +91,11 @@ export class SprintsService {
     return sprint;
   }
 
-  static async getSprints(tx: any, tenantId: string, projectId: string) {
+  static async getSprintsByActivity(tx: any, tenantId: string, activityId: string) {
+    return await SprintsRepository.getSprintsByActivityId(tx, tenantId, activityId);
+  }
+
+  static async getSprintsByProject(tx: any, tenantId: string, projectId: string) {
     return await SprintsRepository.getSprintsByProjectId(tx, tenantId, projectId);
   }
 }

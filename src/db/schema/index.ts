@@ -4,6 +4,7 @@ export * from './users';
 export * from './projects';
 export * from './phases';
 export * from './sprints';
+export * from './activities';
 export * from './epics';
 export * from './stories';
 export * from './tasks';

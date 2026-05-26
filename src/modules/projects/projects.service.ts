@@ -4,6 +4,7 @@ import { AuditService } from '../../services/audit.service';
 import { GatesRepository } from '../gates/gates.repository';
 import { PhasesRepository } from '../phases/phases.repository';
 import { sprints } from '../../db/schema/sprints';
+import { activities } from '../../db/schema/activities';
 import { phases } from '../../db/schema/phases';
 import { projectMembers } from '../../db/schema/project_members';
 import { projects } from '../../db/schema/projects';
@@ -143,7 +144,7 @@ export class ProjectsService {
     // 4. Attach phases to each project so the frontend can compute real progress
     if (merged.length === 0) return merged;
     const phasesList = await tx.select().from(phases).where(eq(phases.tenantId, tenantId));
-    const sprintsList = await tx.select().from(sprints).where(eq(sprints.tenantId, tenantId));
+    const activitiesList = await tx.select().from(activities).where(eq(activities.tenantId, tenantId));
     return merged.map((project: any) => {
       const projPhases = phasesList.filter((p: any) => p.projectId === project.id);
       const allCompleted = projPhases.length > 0 && projPhases.every((p: any) => p.status === 'completed');
@@ -167,7 +168,7 @@ export class ProjectsService {
         ...project,
         status,
         phases: projPhases,
-        sprints: sprintsList.filter((s: any) => s.projectId === project.id),
+        sprints: activitiesList.filter((s: any) => s.projectId === project.id),
       };
     });
   }
@@ -178,7 +179,16 @@ export class ProjectsService {
 
     const phasesList = await PhasesRepository.getPhasesByProjectId(tx, tenantId, projectId);
     const gatesList = await GatesRepository.getGatesByProjectId(tx, tenantId, projectId);
+    const activitiesList = await tx.select().from(activities).where(and(eq(activities.projectId, projectId), eq(activities.tenantId, tenantId)));
     const sprintsList = await tx.select().from(sprints).where(and(eq(sprints.projectId, projectId), eq(sprints.tenantId, tenantId)));
+
+    const mappedSprints = sprintsList.map((sprint: any) => {
+      const parentActivity = activitiesList.find((a: any) => a.id === sprint.activityId);
+      return {
+        ...sprint,
+        phaseId: parentActivity ? parentActivity.phaseId : null,
+      };
+    });
 
     const allCompleted = phasesList.length > 0 && phasesList.every((p: any) => p.status === 'completed');
     let status = project.status;
@@ -200,7 +210,8 @@ export class ProjectsService {
       status,
       phases: phasesList,
       gates: gatesList,
-      sprints: sprintsList,
+      activities: activitiesList,
+      sprints: mappedSprints,
     };
   }
 

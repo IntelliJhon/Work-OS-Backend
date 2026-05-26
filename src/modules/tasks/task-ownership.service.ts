@@ -100,7 +100,7 @@ export class TaskOwnershipService {
    * Strictly validates that standard assignees do not mutate restricted fields.
    */
   static validateAssigneeUpdates(payload: Record<string, any>, dbTask: any) {
-    const restrictedTopFields = ['assigneeId', 'sprintId', 'projectId', 'storyId', 'name', 'description'];
+    const restrictedTopFields = ['assigneeId', 'sprintId', 'activityId', 'projectId', 'storyId', 'name', 'description'];
     for (const field of restrictedTopFields) {
       if (payload[field] !== undefined && payload[field] !== dbTask[field]) {
         throw new ForbiddenError('You are not allowed to update this task');

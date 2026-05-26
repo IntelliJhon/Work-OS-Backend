@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 export const createTaskSchema = z.object({
   body: z.object({
+    projectId: z.string().uuid(),
     storyId: z.string().uuid(),
+    activityId: z.string().uuid().optional(),
     sprintId: z.string().uuid().nullable().optional(),
     assigneeId: z.string().uuid().nullable().optional(),
     name: z.string().min(1).max(255),
@@ -11,4 +13,3 @@ export const createTaskSchema = z.object({
     customFields: z.record(z.string(), z.any()).optional(),
   }),
 });
-

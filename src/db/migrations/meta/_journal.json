@@ -113,6 +113,20 @@
       "when": 1779600000000,
       "tag": "0015_add_sprint_cadence",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1779776433024,
+      "tag": "0016_add_activity_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779900000000,
+      "tag": "0017_nested_sprints",
+      "breakpoints": true
     }
   ]
 }

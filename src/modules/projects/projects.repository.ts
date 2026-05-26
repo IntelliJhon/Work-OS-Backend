@@ -1,5 +1,6 @@
 import { projects } from '../../db/schema/projects';
 import { phases } from '../../db/schema/phases';
+import { activities } from '../../db/schema/activities';
 import { sprints } from '../../db/schema/sprints';
 import { CreateProjectInput, PhaseInput } from './projects.types';
 import { eq, and } from 'drizzle-orm';
@@ -19,11 +20,23 @@ export class ProjectsRepository {
 
   static async findProjectsByTenant(tx: any, tenantId: string) {
     const projectList = await tx.select().from(projects).where(eq(projects.tenantId, tenantId));
-    // Attach phases to each project so the frontend can compute real progress
     const phasesList = await tx.select().from(phases).where(eq(phases.tenantId, tenantId));
+    const activitiesList = await tx.select().from(activities).where(eq(activities.tenantId, tenantId));
     const sprintsList = await tx.select().from(sprints).where(eq(sprints.tenantId, tenantId));
+
     return projectList.map((project: any) => {
       const projPhases = phasesList.filter((p: any) => p.projectId === project.id);
+      const projActivities = activitiesList.filter((a: any) => a.projectId === project.id);
+      const projSprints = sprintsList.filter((s: any) => s.projectId === project.id);
+
+      const mappedSprints = projSprints.map((sprint: any) => {
+        const parentActivity = projActivities.find((a: any) => a.id === sprint.activityId);
+        return {
+          ...sprint,
+          phaseId: parentActivity ? parentActivity.phaseId : null,
+        };
+      });
+
       const allCompleted = projPhases.length > 0 && projPhases.every((p: any) => p.status === 'completed');
       let status = project.status;
       
@@ -45,7 +58,8 @@ export class ProjectsRepository {
         ...project,
         status,
         phases: projPhases,
-        sprints: sprintsList.filter((s: any) => s.projectId === project.id),
+        activities: projActivities,
+        sprints: mappedSprints,
       };
     });
   }

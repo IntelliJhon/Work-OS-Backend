@@ -14,7 +14,32 @@ export class SprintsController {
         return await SprintsService.createSprint(tx, tenantId, req.user!.id, req.ip || '', req.body);
       });
 
+      emitWorkflowEvent({
+        type: 'SPRINT_CREATED',
+        tenantId,
+        actorId: req.user!.id,
+        timestamp: new Date().toISOString(),
+        entityType: 'sprint',
+        entityId: result.id,
+        payload: result
+      });
+
       return res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async listByActivity(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const activityId = req.params.activityId as string;
+
+      const result = await withTenant(tenantId, async (tx) => {
+        return await SprintsService.getSprintsByActivity(tx, tenantId, activityId);
+      });
+
+      return res.json(result);
     } catch (error) {
       next(error);
     }
@@ -26,7 +51,7 @@ export class SprintsController {
       const projectId = req.params.projectId as string;
 
       const result = await withTenant(tenantId, async (tx) => {
-        return await SprintsService.getSprints(tx, tenantId, projectId);
+        return await SprintsService.getSprintsByProject(tx, tenantId, projectId);
       });
 
       return res.json(result);
@@ -84,7 +109,6 @@ export class SprintsController {
       next(error);
     }
   }
-
 
   static async reopen(req: AuthRequest, res: Response, next: NextFunction) {
     try {
