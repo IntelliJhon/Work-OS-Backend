@@ -9,8 +9,16 @@ export class ActivitiesController {
     try {
       const tenantId = req.user!.tenantId;
 
+      // Drizzle's PgTimestamp.mapToDriverValue() requires a Date object (not a string).
+      // Convert ISO strings coming from req.body before passing to the ORM.
+      const body = { ...req.body };
+      if (body.startDate) body.startDate = new Date(body.startDate);
+      else body.startDate = null;
+      if (body.endDate) body.endDate = new Date(body.endDate);
+      else body.endDate = null;
+
       const result = await withTenant(tenantId, async (tx) => {
-        return await ActivitiesService.createActivity(tx, tenantId, req.user!.id, req.ip || '', req.body);
+        return await ActivitiesService.createActivity(tx, tenantId, req.user!.id, req.ip || '', body);
       });
 
       emitWorkflowEvent({
