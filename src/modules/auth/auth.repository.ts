@@ -34,4 +34,8 @@ export class AuthRepository {
   static async deleteAllRefreshTokens(tx: any, userId: string) {
     await tx.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
   }
+
+  static async updatePassword(tx: any, userId: string, passwordHash: string) {
+    await tx.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  }
 }

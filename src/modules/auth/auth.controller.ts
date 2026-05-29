@@ -5,6 +5,7 @@ import { TenantRepository } from '../tenants/tenant.repository';
 import { AuthRepository } from './auth.repository';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
+import bcrypt from 'bcrypt';
 
 export class AuthController {
   static async login(req: Request, res: Response, next: NextFunction) {
@@ -96,6 +97,53 @@ export class AuthController {
       }
 
       return res.json({ user: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { workspace, email } = req.body;
+      const tenant = await TenantRepository.findBySlug(workspace);
+      if (!tenant || !tenant.isActive) {
+        return res.status(404).json({ error: 'Workspace slug not found' });
+      }
+
+      const result = await withTenant(tenant.id, async (tx) => {
+        return await AuthService.forgotPassword(tx, email, tenant.id);
+      });
+
+      return res.json(result);
+    } catch (error: any) {
+      if (error.message === 'User not found') {
+        return res.status(404).json({ error: 'No user registered with this email address' });
+      }
+      next(error);
+    }
+  }
+
+  static async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { resetToken, newPassword } = req.body;
+      let decoded: any;
+      try {
+        decoded = jwt.verify(resetToken, env.JWT_ACCESS_SECRET) as any;
+      } catch (err) {
+        return res.status(400).json({ error: 'Reset link has expired or is invalid' });
+      }
+
+      if (decoded.purpose !== 'password-reset') {
+        return res.status(400).json({ error: 'Invalid token purpose' });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+
+      await withTenant(decoded.tenantId, async (tx) => {
+        await AuthService.resetPassword(tx, decoded.userId, passwordHash);
+      });
+
+      return res.json({ success: true, message: 'Password has been updated successfully' });
     } catch (error) {
       next(error);
     }

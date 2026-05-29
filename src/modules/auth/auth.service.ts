@@ -145,4 +145,27 @@ export class AuthService {
       }
     }
   }
+
+  static async forgotPassword(tx: any, email: string, tenantId: string) {
+    const user = await AuthRepository.findUserByEmail(tx, email);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Sign a temporary reset token valid for 15 minutes
+    const resetToken = jwt.sign(
+      { userId: user.id, tenantId: user.tenantId, email: user.email, purpose: 'password-reset' },
+      env.JWT_ACCESS_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    return { resetToken };
+  }
+
+  static async resetPassword(tx: any, userId: string, passwordHash: string) {
+    // 1. Update password
+    await AuthRepository.updatePassword(tx, userId, passwordHash);
+    // 2. Revoke all previous active refresh sessions for absolute security
+    await AuthRepository.deleteAllRefreshTokens(tx, userId);
+  }
 }

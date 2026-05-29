@@ -19,3 +19,18 @@ export const logoutSchema = z.object({
     refreshToken: z.string(),
   }),
 });
+
+export const forgotPasswordSchema = z.object({
+  body: z.object({
+    workspace: z.string().min(3),
+    email: z.string().email(),
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    resetToken: z.string().min(10),
+    newPassword: z.string().min(6),
+  }),
+});
+
