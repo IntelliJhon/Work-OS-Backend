@@ -8,6 +8,10 @@ import { withTenant } from '../middleware/tenant.middleware';
 import { NotificationsService } from '../modules/notifications/notifications.service';
 import { logger } from '../config/logger';
 import { lt, and, isNull, eq } from 'drizzle-orm';
+import { isRedisDisabled } from './config';
+import { MockWorker } from './mockRedis';
+
+const WorkerClass = isRedisDisabled ? MockWorker : Worker;
 
 
 // Utility to handle failures
@@ -30,7 +34,7 @@ const handleFailedJob = async (job: Job | undefined, err: Error, queueName: stri
   }
 };
 
-export const notificationsWorker = new Worker<JobPayload>(
+export const notificationsWorker = new WorkerClass<JobPayload>(
   'notificationsQueue',
   async (job) => {
     logger.info(`Processing notification job ${job.id} for tenant ${job.data.tenantId}`);
@@ -57,7 +61,7 @@ export const notificationsWorker = new Worker<JobPayload>(
 );
 notificationsWorker.on('failed', (job, err) => handleFailedJob(job, err, 'notificationsQueue'));
 
-export const workflowWorker = new Worker<JobPayload>(
+export const workflowWorker = new WorkerClass<JobPayload>(
   'workflowQueue',
   async (job) => {
     logger.info(`Processing workflow job ${job.id} for tenant ${job.data.tenantId}`);
@@ -73,7 +77,7 @@ export const workflowWorker = new Worker<JobPayload>(
 );
 workflowWorker.on('failed', (job, err) => handleFailedJob(job, err, 'workflowQueue'));
 
-export const escalationWorker = new Worker<JobPayload>(
+export const escalationWorker = new WorkerClass<JobPayload>(
   'escalationQueue',
   async (job) => {
     logger.info(`Processing escalation job ${job.id} for tenant ${job.data.tenantId}`);
@@ -82,7 +86,7 @@ export const escalationWorker = new Worker<JobPayload>(
 );
 escalationWorker.on('failed', (job, err) => handleFailedJob(job, err, 'escalationQueue'));
 
-export const cleanupWorker = new Worker<JobPayload>(
+export const cleanupWorker = new WorkerClass<JobPayload>(
   'cleanupQueue',
   async (job) => {
     logger.info(`Processing cleanup job ${job.id} for tenant ${job.data.tenantId}`);

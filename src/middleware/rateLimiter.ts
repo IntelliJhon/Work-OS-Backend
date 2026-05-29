@@ -1,9 +1,6 @@
 import rateLimit from 'express-rate-limit';
-import RedisStore from 'rate-limit-redis';
-import { redisClient } from '../jobs/config';
 import { logger } from '../lib/logger';
 import { Request, Response } from 'express';
-
 import { env } from '../config/env';
 
 // Reusable handler for rate limit exceeded
@@ -16,42 +13,21 @@ const handler = (req: Request, res: Response, next: any, options: any) => {
   });
 };
 
-// Create a unique store for each limiter
-const createStore = (prefix: string) => new RedisStore({
-  // @ts-expect-error - Known typing mismatch between ioredis and rate-limit-redis
-  sendCommand: async (...args: string[]) => {
-    try {
-      return await redisClient.call(args[0], ...args.slice(1));
-    } catch (err: any) {
-      logger.error({ err, command: args }, 'Rate limit Redis command failed. Failing open.');
-      const cmd = args[0]?.toUpperCase();
-      if (cmd === 'EVAL' || cmd === 'EVALSHA') {
-        // Fail open: return 1 hit and 15 minute TTL
-        return [1, 15 * 60 * 1000];
-      }
-      return 0;
-    }
-  },
-  prefix,
-});
-
-// Global Rate Limiter: Environment-configurable limit, defaults to 1000 requests per 15 minutes
+// Global Rate Limiter: Environment-configurable limit, defaults to 5000 requests per 15 minutes
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: env.GLOBAL_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createStore('rl:global:'),
   handler,
 });
 
-// Auth Rate Limiter: Environment-configurable limit, defaults to 100 requests per 15 minutes
+// Auth Rate Limiter: Environment-configurable limit, defaults to 500 requests per 15 minutes
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: env.AUTH_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createStore('rl:auth:'),
   handler,
 });
 
@@ -61,6 +37,5 @@ export const uploadLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createStore('rl:upload:'),
   handler,
 });

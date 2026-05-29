@@ -30,17 +30,20 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { notificationsQueue, workflowQueue, escalationQueue, cleanupQueue } from './jobs/queues';
+import { isRedisDisabled } from './jobs/config';
 
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath('/admin/queues');
 
+const dashboardQueues = isRedisDisabled ? [] : [
+  new BullMQAdapter(notificationsQueue as any),
+  new BullMQAdapter(workflowQueue as any),
+  new BullMQAdapter(escalationQueue as any),
+  new BullMQAdapter(cleanupQueue as any),
+];
+
 createBullBoard({
-  queues: [
-    new BullMQAdapter(notificationsQueue),
-    new BullMQAdapter(workflowQueue),
-    new BullMQAdapter(escalationQueue),
-    new BullMQAdapter(cleanupQueue),
-  ],
+  queues: dashboardQueues,
   serverAdapter,
 });
 

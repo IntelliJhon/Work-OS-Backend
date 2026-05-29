@@ -1,11 +1,26 @@
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { env } from '../config/env';
-import { redisConnectionOptions } from './config';
+import { redisConnectionOptions, isRedisDisabled } from './config';
+import { MockQueue, MockRedis } from './mockRedis';
 
-export const redisConnection = new Redis(env.REDIS_URL, redisConnectionOptions);
+export const redisConnection = isRedisDisabled
+  ? new MockRedis() as any
+  : new Redis(env.REDIS_URL, redisConnectionOptions);
 
-export const notificationsQueue = new Queue('notificationsQueue', { connection: redisConnection });
-export const workflowQueue = new Queue('workflowQueue', { connection: redisConnection });
-export const escalationQueue = new Queue('escalationQueue', { connection: redisConnection });
-export const cleanupQueue = new Queue('cleanupQueue', { connection: redisConnection });
+export const notificationsQueue = isRedisDisabled
+  ? new MockQueue('notificationsQueue') as any
+  : new Queue('notificationsQueue', { connection: redisConnection });
+
+export const workflowQueue = isRedisDisabled
+  ? new MockQueue('workflowQueue') as any
+  : new Queue('workflowQueue', { connection: redisConnection });
+
+export const escalationQueue = isRedisDisabled
+  ? new MockQueue('escalationQueue') as any
+  : new Queue('escalationQueue', { connection: redisConnection });
+
+export const cleanupQueue = isRedisDisabled
+  ? new MockQueue('cleanupQueue') as any
+  : new Queue('cleanupQueue', { connection: redisConnection });
+
