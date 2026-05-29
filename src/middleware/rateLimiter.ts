@@ -19,7 +19,19 @@ const handler = (req: Request, res: Response, next: any, options: any) => {
 // Create a unique store for each limiter
 const createStore = (prefix: string) => new RedisStore({
   // @ts-expect-error - Known typing mismatch between ioredis and rate-limit-redis
-  sendCommand: (...args: string[]) => redisClient.call(args[0], ...args.slice(1)),
+  sendCommand: async (...args: string[]) => {
+    try {
+      return await redisClient.call(args[0], ...args.slice(1));
+    } catch (err: any) {
+      logger.error({ err, command: args }, 'Rate limit Redis command failed. Failing open.');
+      const cmd = args[0]?.toUpperCase();
+      if (cmd === 'EVAL' || cmd === 'EVALSHA') {
+        // Fail open: return 1 hit and 15 minute TTL
+        return [1, 15 * 60 * 1000];
+      }
+      return 0;
+    }
+  },
   prefix,
 });
 
