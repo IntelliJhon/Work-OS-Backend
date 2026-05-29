@@ -11,7 +11,7 @@ import { lt, and, isNull, eq } from 'drizzle-orm';
 import { isRedisDisabled } from './config';
 import { MockWorker } from './mockRedis';
 
-const WorkerClass = isRedisDisabled ? MockWorker : Worker;
+const WorkerClass = (isRedisDisabled ? MockWorker : Worker) as any;
 
 
 // Utility to handle failures
@@ -34,9 +34,9 @@ const handleFailedJob = async (job: Job | undefined, err: Error, queueName: stri
   }
 };
 
-export const notificationsWorker = new WorkerClass<JobPayload>(
+export const notificationsWorker = new WorkerClass(
   'notificationsQueue',
-  async (job) => {
+  async (job: any) => {
     logger.info(`Processing notification job ${job.id} for tenant ${job.data.tenantId}`);
     
     if (job.data.metadata?.forceFail) {
@@ -59,11 +59,11 @@ export const notificationsWorker = new WorkerClass<JobPayload>(
   },
   { connection: redisConnection }
 );
-notificationsWorker.on('failed', (job, err) => handleFailedJob(job, err, 'notificationsQueue'));
+notificationsWorker.on('failed', (job: any, err: any) => handleFailedJob(job, err, 'notificationsQueue'));
 
-export const workflowWorker = new WorkerClass<JobPayload>(
+export const workflowWorker = new WorkerClass(
   'workflowQueue',
-  async (job) => {
+  async (job: any) => {
     logger.info(`Processing workflow job ${job.id} for tenant ${job.data.tenantId}`);
     
     if (job.data.tenantId !== 'system') {
@@ -75,20 +75,20 @@ export const workflowWorker = new WorkerClass<JobPayload>(
   },
   { connection: redisConnection }
 );
-workflowWorker.on('failed', (job, err) => handleFailedJob(job, err, 'workflowQueue'));
+workflowWorker.on('failed', (job: any, err: any) => handleFailedJob(job, err, 'workflowQueue'));
 
-export const escalationWorker = new WorkerClass<JobPayload>(
+export const escalationWorker = new WorkerClass(
   'escalationQueue',
-  async (job) => {
+  async (job: any) => {
     logger.info(`Processing escalation job ${job.id} for tenant ${job.data.tenantId}`);
   },
   { connection: redisConnection }
 );
-escalationWorker.on('failed', (job, err) => handleFailedJob(job, err, 'escalationQueue'));
+escalationWorker.on('failed', (job: any, err: any) => handleFailedJob(job, err, 'escalationQueue'));
 
-export const cleanupWorker = new WorkerClass<JobPayload>(
+export const cleanupWorker = new WorkerClass(
   'cleanupQueue',
-  async (job) => {
+  async (job: any) => {
     logger.info(`Processing cleanup job ${job.id} for tenant ${job.data.tenantId}`);
     try {
       const now = new Date();
@@ -122,7 +122,7 @@ export const cleanupWorker = new WorkerClass<JobPayload>(
   },
   { connection: redisConnection }
 );
-cleanupWorker.on('failed', (job, err) => handleFailedJob(job, err, 'cleanupQueue'));
+cleanupWorker.on('failed', (job: any, err: any) => handleFailedJob(job, err, 'cleanupQueue'));
 
 export const startWorkers = () => {
   logger.info('✅ Background workers started');
