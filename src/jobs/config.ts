@@ -6,7 +6,7 @@ export const redisConnectionOptions: RedisOptions = {
   maxRetriesPerRequest: null, // Required by BullMQ
 };
 
-export const isRedisDisabled = process.env.DISABLE_REDIS === 'true';
+export const isRedisDisabled = process.env.DISABLE_REDIS !== 'false';
 
 // Export a shared Redis client for Health Checks and Rate Limiting
 export const redisClient = isRedisDisabled

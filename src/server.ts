@@ -18,5 +18,18 @@ initSocket(server);
 
 process.on('unhandledRejection', (err: any) => {
   logger.error({ err }, 'Unhandled Rejection');
+  
+  // Safely swallow Redis quota limits or connection failures without crashing the server process
+  const errMsg = err?.message || '';
+  if (
+    errMsg.includes('max requests limit') || 
+    errMsg.includes('Upstash') || 
+    errMsg.includes('Redis') || 
+    errMsg.includes('connection')
+  ) {
+    logger.warn('⚠️ Redis/BullMQ error detected. Keeping the server online safely.');
+    return;
+  }
+
   server.close(() => process.exit(1));
 });
