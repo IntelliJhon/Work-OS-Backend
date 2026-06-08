@@ -9,6 +9,8 @@ export const createActivitySchema = z.object({
     frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']).optional().nullable(),
     startDate: z.string().optional().nullable(),
     endDate: z.string().optional().nullable(),
+    assigneeId: z.string().uuid().optional().nullable(),
+    priority: z.enum(['low', 'medium', 'high', 'critical']).optional().nullable(),
   }),
 });
 
@@ -24,5 +26,7 @@ export const updateActivitySchema = z.object({
     frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']).optional().nullable(),
     startDate: z.string().optional().nullable(),
     endDate: z.string().optional().nullable(),
+    assigneeId: z.string().uuid().optional().nullable(),
+    priority: z.enum(['low', 'medium', 'high', 'critical']).optional().nullable(),
   }),
 });
