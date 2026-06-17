@@ -45,6 +45,7 @@ router.post(
   UploadController.uploadFiles
 );
 
+router.get('/:id/download-url', authenticate, UploadController.getDownloadUrl);
 router.get('/:entityType/:entityId', authenticate, UploadController.listByEntity);
 
 export const uploadsRouter = router;

@@ -34,3 +34,20 @@ export const uploadStream = (buffer: Buffer, folder: string, originalName: strin
     streamifier.createReadStream(buffer).pipe(cldUploadStream);
   });
 };
+
+export const getSignedDownloadUrl = (storageKey: string, mimeType: string, originalName: string): string => {
+  if (!env.CLOUDINARY_URL) {
+    throw new Error('CLOUDINARY_URL is not configured');
+  }
+
+  const isRaw = !mimeType.startsWith('image/') && mimeType !== 'application/pdf';
+  const resourceType = isRaw ? 'raw' : 'image';
+  const ext = originalName.split('.').pop()?.toLowerCase() || '';
+
+  return cloudinary.utils.private_download_url(storageKey, ext, {
+    resource_type: resourceType,
+    type: 'upload',
+    attachment: true,
+  });
+};
+

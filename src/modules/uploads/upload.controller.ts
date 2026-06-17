@@ -52,4 +52,17 @@ export class UploadController {
       next(error);
     }
   }
+
+  static async getDownloadUrl(req: Request, res: Response, next: NextFunction) {
+    try {
+      const tenantId = (req as any).user!.tenantId;
+      const id = req.params.id as string;
+
+      const downloadUrl = await UploadService.getSignedDownloadUrl(tenantId, id);
+
+      res.json({ downloadUrl });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

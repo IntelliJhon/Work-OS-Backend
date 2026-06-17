@@ -1,9 +1,10 @@
 import { db } from '../../db';
 import { uploads } from '../../db/schema/uploads';
 import { withTenant } from '../../middleware/tenant.middleware';
-import { uploadStream } from './cloudinary';
+import { uploadStream, getSignedDownloadUrl } from './cloudinary';
 import { uploadLogger } from '../../lib/logger';
 import { and, eq } from 'drizzle-orm';
+
 
 interface UploadParams {
   tenantId: string;
@@ -59,5 +60,23 @@ export class UploadService {
         )
       );
     });
+  }
+
+  static async getSignedDownloadUrl(tenantId: string, uploadId: string): Promise<string> {
+    const result = await withTenant(tenantId, async (tx: any) => {
+      const rows = await tx.select().from(uploads).where(
+        and(
+          eq(uploads.tenantId, tenantId),
+          eq(uploads.id, uploadId)
+        )
+      );
+      return rows[0];
+    });
+
+    if (!result) {
+      throw new Error('Upload file not found');
+    }
+
+    return getSignedDownloadUrl(result.storageKey, result.mimeType, result.originalName);
   }
 }
