@@ -54,9 +54,9 @@ export class TenantService {
             "task.update": true
           }
         },
-        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "task.create": true } },
-        { tenantId: tenant.id, name: 'Developer', permissions: { "task.create": true, "task.update": true, "comment.create": true } },
-        { tenantId: tenant.id, name: 'Viewer', permissions: {} },
+        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true } },
+        { tenantId: tenant.id, name: 'Developer', permissions: { "project.read": true, "task.read": true, "task.create": true, "task.update": true, "comment.create": true } },
+        { tenantId: tenant.id, name: 'Viewer', permissions: { "project.read": true, "task.read": true } },
       ]);
 
       // 3. Create Admin User

@@ -148,6 +148,20 @@
       "when": 1748261400000,
       "tag": "0020_disable_activities_sprints_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782110474485,
+      "tag": "0021_make_task_project_optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1782115710238,
+      "tag": "0022_update_roles_permissions",
+      "breakpoints": true
     }
   ]
 }
