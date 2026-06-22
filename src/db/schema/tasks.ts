@@ -9,8 +9,8 @@ import { projects } from './projects';
 export const tasks = pgTable('tasks', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
-  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
-  storyId: uuid('story_id').references(() => stories.id, { onDelete: 'cascade' }).notNull(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  storyId: uuid('story_id').references(() => stories.id, { onDelete: 'cascade' }),
   activityId: uuid('activity_id').references(() => activities.id, { onDelete: 'cascade' }),
   sprintId: uuid('sprint_id').references(() => sprints.id, { onDelete: 'set null' }),
   assigneeId: uuid('assignee_id').references(() => users.id, { onDelete: 'set null' }),

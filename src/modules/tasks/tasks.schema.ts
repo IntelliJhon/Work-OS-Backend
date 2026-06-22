@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const createTaskSchema = z.object({
   body: z.object({
-    projectId: z.string().uuid(),
-    storyId: z.string().uuid(),
+    projectId: z.string().uuid().nullable().optional(),
+    storyId: z.string().uuid().nullable().optional(),
     activityId: z.string().uuid().optional(),
     sprintId: z.string().uuid().nullable().optional(),
     assigneeId: z.string().uuid().nullable().optional(),

@@ -40,7 +40,7 @@ export class TasksController {
         try {
           const io = getIoInstance();
           const actorName = req.user ? `${(req.user as any).firstName || ''} ${(req.user as any).lastName || ''}`.trim() || (req.user as any).email || req.user.role : 'System';
-          const room = `project:${newTask.projectId}`;
+          const room = newTask.projectId ? `project:${newTask.projectId}` : `tenant:${tenantId}`;
           io.to(room).emit('kanban_task_created_received', {
             sprintId: newTask.sprintId,
             task: newTask,
@@ -136,7 +136,7 @@ export class TasksController {
         try {
           const io = getIoInstance();
           const actorName = req.user ? `${(req.user as any).firstName || ''} ${(req.user as any).lastName || ''}`.trim() || (req.user as any).email || req.user.role : 'System';
-          const room = `project:${updatedTask.projectId}`;
+          const room = updatedTask.projectId ? `project:${updatedTask.projectId}` : `tenant:${tenantId}`;
 
           io.to(room).emit('kanban_task_updated_received', {
             sprintId: updatedTask.sprintId,
@@ -207,7 +207,7 @@ export class TasksController {
         // Broadcast real-time Socket.IO delete event
         try {
           const io = getIoInstance();
-          const room = `project:${task.projectId}`;
+          const room = task.projectId ? `project:${task.projectId}` : `tenant:${tenantId}`;
           io.to(room).emit('kanban_task_deleted_received', {
             sprintId: task.sprintId,
             taskId: task.id,

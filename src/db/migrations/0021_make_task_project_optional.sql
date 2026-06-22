@@ -1,0 +1,2 @@
+ALTER TABLE "tasks" ALTER COLUMN "project_id" DROP NOT NULL;
+ALTER TABLE "tasks" ALTER COLUMN "story_id" DROP NOT NULL;

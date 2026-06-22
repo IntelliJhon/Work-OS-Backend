@@ -59,7 +59,7 @@ export class TaskOwnershipService {
         pmId: projects.pmId,
       })
       .from(tasks)
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
       .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)));
 
     if (!taskWithProject) {

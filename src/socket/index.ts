@@ -144,7 +144,7 @@ export const initSocket = (httpServer: HttpServer) => {
 
     // Threaded Comments Broadcast
     socket.on('broadcast_comment', async ({ projectId, entityId, comment }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('comment_received', { entityId, comment });
 
       // Trigger comment mentions notification in user tenant context
@@ -196,38 +196,38 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     socket.on('broadcast_comment_delete', ({ projectId, entityId, commentId }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('comment_deleted', { entityId, commentId });
     });
 
     socket.on('broadcast_comment_reaction', ({ projectId, entityId, commentId, reaction, userId }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('comment_reaction_received', { entityId, commentId, reaction, userId });
     });
 
     // Kanban movements broadcast
     socket.on('kanban_task_moved', ({ projectId, taskId, fromStatus, toStatus, actorName }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('kanban_task_moved_received', { taskId, fromStatus, toStatus, actorName });
     });
 
     socket.on('kanban_task_created', ({ projectId, sprintId, task, actorName }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('kanban_task_created_received', { sprintId, task, actorName });
     });
 
     socket.on('kanban_task_deleted', ({ projectId, sprintId, taskId }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('kanban_task_deleted_received', { sprintId, taskId });
     });
 
     socket.on('kanban_task_updated', ({ projectId, sprintId, taskId, updates }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('kanban_task_updated_received', { sprintId, taskId, updates });
     });
 
     socket.on('request_kanban_sync', ({ projectId }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('request_kanban_sync_received', { requesterId: socket.id });
     });
 
@@ -236,7 +236,7 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     socket.on('request_comments_sync', ({ projectId }) => {
-      const room = `project:${projectId}`;
+      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
       socket.to(room).emit('request_comments_sync_received', { requesterId: socket.id });
     });
 
