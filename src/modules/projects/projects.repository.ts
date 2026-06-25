@@ -2,6 +2,7 @@ import { projects } from '../../db/schema/projects';
 import { phases } from '../../db/schema/phases';
 import { activities } from '../../db/schema/activities';
 import { sprints } from '../../db/schema/sprints';
+import { tenants } from '../../db/schema/tenants';
 import { CreateProjectInput, PhaseInput } from './projects.types';
 import { eq, and } from 'drizzle-orm';
 
@@ -65,8 +66,21 @@ export class ProjectsRepository {
   }
 
   static async findProjectById(tx: any, tenantId: string, projectId: string) {
-    const [project] = await tx.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.tenantId, tenantId)));
-    return project;
+    const result = await tx
+      .select({
+        project: projects,
+        tenantSlug: tenants.slug,
+      })
+      .from(projects)
+      .innerJoin(tenants, eq(projects.tenantId, tenants.id))
+      .where(and(eq(projects.id, projectId), eq(projects.tenantId, tenantId)))
+      .limit(1);
+
+    if (result.length === 0) return null;
+    return {
+      ...result[0].project,
+      tenantSlug: result[0].tenantSlug,
+    };
   }
 
   static async updateProject(tx: any, tenantId: string, projectId: string, data: Partial<CreateProjectInput>) {
