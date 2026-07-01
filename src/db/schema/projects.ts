@@ -8,6 +8,8 @@ export const projects = pgTable('projects', {
   pmId: uuid('pm_id').references(() => users.id, { onDelete: 'set null' }),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
+  overview: text('overview'),
+  scopes: text('scopes'),
   status: varchar('status', { length: 50 }).notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

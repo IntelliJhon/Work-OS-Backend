@@ -46,6 +46,7 @@ router.post(
 );
 
 router.get('/:id/download-url', authenticate, UploadController.getDownloadUrl);
+router.get('/project/:projectId/all', authenticate, UploadController.listAllProjectUploads);
 router.get('/:entityType/:entityId', authenticate, UploadController.listByEntity);
 
 export const uploadsRouter = router;

@@ -1,6 +1,8 @@
 export interface CreateProjectInput {
   name: string;
   description?: string;
+  overview?: string;
+  scopes?: string;
   pmId?: string;
   status?: string;
 }

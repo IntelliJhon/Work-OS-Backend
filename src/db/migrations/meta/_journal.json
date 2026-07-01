@@ -162,6 +162,13 @@
       "when": 1782115710238,
       "tag": "0022_update_roles_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785500000000,
+      "tag": "0023_add_project_overview_scopes",
+      "breakpoints": true
     }
   ]
 }

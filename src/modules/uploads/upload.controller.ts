@@ -53,6 +53,19 @@ export class UploadController {
     }
   }
 
+  static async listAllProjectUploads(req: Request, res: Response, next: NextFunction) {
+    try {
+      const tenantId = (req as any).user!.tenantId;
+      const projectId = req.params.projectId as string;
+
+      const results = await UploadService.getAllProjectUploads(tenantId, projectId);
+
+      res.json(results);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getDownloadUrl(req: Request, res: Response, next: NextFunction) {
     try {
       const tenantId = (req as any).user!.tenantId;
