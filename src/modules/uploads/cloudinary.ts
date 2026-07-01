@@ -51,3 +51,28 @@ export const getSignedDownloadUrl = (storageKey: string, mimeType: string, origi
   });
 };
 
+export const deleteFile = (storageKey: string, mimeType: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    if (!env.CLOUDINARY_URL) {
+      return reject(new Error('CLOUDINARY_URL is not configured'));
+    }
+
+    const isRaw = !mimeType.startsWith('image/') && mimeType !== 'application/pdf';
+    const resourceType = isRaw ? 'raw' : 'image';
+
+    cloudinary.uploader.destroy(
+      storageKey,
+      {
+        resource_type: resourceType,
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(result);
+        }
+      }
+    );
+  });
+};
+

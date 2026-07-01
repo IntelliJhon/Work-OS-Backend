@@ -46,6 +46,7 @@ router.post(
 );
 
 router.get('/:id/download-url', authenticate, UploadController.getDownloadUrl);
+router.delete('/:id', authenticate, UploadController.deleteUpload);
 router.get('/project/:projectId/all', authenticate, UploadController.listAllProjectUploads);
 router.get('/:entityType/:entityId', authenticate, UploadController.listByEntity);
 

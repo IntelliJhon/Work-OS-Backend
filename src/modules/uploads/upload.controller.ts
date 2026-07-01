@@ -78,4 +78,17 @@ export class UploadController {
       next(error);
     }
   }
+
+  static async deleteUpload(req: Request, res: Response, next: NextFunction) {
+    try {
+      const tenantId = (req as any).user!.tenantId;
+      const id = req.params.id as string;
+
+      await UploadService.deleteUpload(tenantId, id);
+
+      res.json({ message: 'File deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

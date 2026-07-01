@@ -5,7 +5,7 @@ import { qualityGates } from '../../db/schema/quality_gates';
 import { users } from '../../db/schema/users';
 import { phases } from '../../db/schema/phases';
 import { withTenant } from '../../middleware/tenant.middleware';
-import { uploadStream, getSignedDownloadUrl } from './cloudinary';
+import { uploadStream, getSignedDownloadUrl, deleteFile } from './cloudinary';
 import { uploadLogger } from '../../lib/logger';
 import { and, eq, or, inArray, sql } from 'drizzle-orm';
 
@@ -155,5 +155,40 @@ export class UploadService {
     }
 
     return getSignedDownloadUrl(result.storageKey, result.mimeType, result.originalName);
+  }
+
+  static async deleteUpload(tenantId: string, uploadId: string): Promise<void> {
+    const result = await withTenant(tenantId, async (tx: any) => {
+      const rows = await tx.select().from(uploads).where(
+        and(
+          eq(uploads.tenantId, tenantId),
+          eq(uploads.id, uploadId)
+        )
+      );
+      return rows[0];
+    });
+
+    if (!result) {
+      throw new Error('Upload file not found or access denied');
+    }
+
+    // 1. Delete from Cloudinary
+    try {
+      await deleteFile(result.storageKey, result.mimeType);
+    } catch (error: any) {
+      uploadLogger.warn({ uploadId, error: error.message }, 'Failed to delete file from Cloudinary (might be already deleted)');
+    }
+
+    // 2. Delete from Database
+    await withTenant(tenantId, async (tx: any) => {
+      await tx.delete(uploads).where(
+        and(
+          eq(uploads.tenantId, tenantId),
+          eq(uploads.id, uploadId)
+        )
+      );
+    });
+
+    uploadLogger.info({ uploadId, tenantId }, 'File upload deleted successfully');
   }
 }
