@@ -10,6 +10,7 @@ export const createTaskSchema = z.object({
     name: z.string().min(1).max(255),
     description: z.string().optional(),
     status: z.enum(['to_do', 'todo', 'in_progress', 'in_review', 'review', 'done', 'blocked']).default('to_do'),
+    timeEstimate: z.number().int().nonnegative().nullable().optional(),
     customFields: z.record(z.string(), z.any()).optional(),
   }),
 });

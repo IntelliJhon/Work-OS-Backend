@@ -3,6 +3,7 @@ export interface CreateProjectInput {
   description?: string;
   overview?: string;
   scopes?: string;
+  clientName?: string;
   pmId?: string;
   status?: string;
 }

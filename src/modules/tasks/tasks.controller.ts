@@ -17,9 +17,11 @@ export class TasksController {
       const tenantId = req.user!.tenantId;
 
       const result = await withTenant(tenantId, async (tx) => {
+        const completedAt = req.body.status === 'done' ? new Date() : null;
         const [newTask] = await tx.insert(tasks).values({
           tenantId,
           ...req.body,
+          completedAt,
         }).returning();
 
         // Audit Logging
@@ -111,9 +113,19 @@ export class TasksController {
           return oldTask;
         }
 
+        // Handle completedAt timestamp setting based on status transitions
+        let completedAtUpdate = {};
+        if (allowedUpdates.status !== undefined && allowedUpdates.status !== oldTask.status) {
+          if (allowedUpdates.status === 'done') {
+            completedAtUpdate = { completedAt: new Date() };
+          } else if (oldTask.status === 'done') {
+            completedAtUpdate = { completedAt: null };
+          }
+        }
+
         const [updatedTask] = await tx
           .update(tasks)
-          .set({ ...allowedUpdates, updatedAt: new Date() })
+          .set({ ...allowedUpdates, ...completedAtUpdate, updatedAt: new Date() })
           .where(eq(tasks.id, id))
           .returning();
 

@@ -10,6 +10,7 @@ export const projects = pgTable('projects', {
   description: text('description'),
   overview: text('overview'),
   scopes: text('scopes'),
+  clientName: varchar('client_name', { length: 255 }),
   status: varchar('status', { length: 50 }).notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

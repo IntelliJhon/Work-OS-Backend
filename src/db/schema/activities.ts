@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar, index, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, index, boolean, integer } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { projects } from './projects';
 import { phases } from './phases';
@@ -13,6 +13,7 @@ export const activities = pgTable('activities', {
   frequency: varchar('frequency', { length: 20 }),
   startDate: timestamp('start_date'),
   endDate: timestamp('end_date'),
+  timeEstimate: integer('time_estimate'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

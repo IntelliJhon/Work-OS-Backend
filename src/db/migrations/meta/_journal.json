@@ -169,6 +169,27 @@
       "when": 1785500000000,
       "tag": "0023_add_project_overview_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785600000000,
+      "tag": "0024_add_project_client_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785700000000,
+      "tag": "0025_add_task_time_and_completion",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782974610622,
+      "tag": "0026_add_activity_time_estimate",
+      "breakpoints": true
     }
   ]
 }

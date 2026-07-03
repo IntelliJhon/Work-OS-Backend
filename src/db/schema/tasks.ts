@@ -1,4 +1,4 @@
-import { jsonb, pgTable, timestamp, uuid, varchar, text, index } from 'drizzle-orm/pg-core';
+import { jsonb, pgTable, timestamp, uuid, varchar, text, index, integer } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { stories } from './stories';
 import { sprints } from './sprints';
@@ -17,6 +17,8 @@ export const tasks = pgTable('tasks', {
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   status: varchar('status', { length: 50 }).notNull().default('todo'),
+  timeEstimate: integer('time_estimate'),
+  completedAt: timestamp('completed_at'),
   customFields: jsonb('custom_fields').default({}),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

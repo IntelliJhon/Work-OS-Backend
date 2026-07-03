@@ -1,5 +1,6 @@
 import { db } from '../../db';
 import { projects } from '../../db/schema/projects';
+import { users } from '../../db/schema/users';
 import { eq, and } from 'drizzle-orm';
 import { NotificationsService } from './notifications.service';
 import { logger } from '../../config/logger';
@@ -96,12 +97,20 @@ export class NotificationEvents {
       await withTenant(tenantId, async (tx) => {
         let pmId: string | null = null;
         let projectName = 'Workspace';
+        let actorName = 'Someone';
 
         if (newTask.projectId) {
           const [project] = await tx.select().from(projects).where(and(eq(projects.id, newTask.projectId), eq(projects.tenantId, tenantId)));
           if (project) {
             pmId = project.pmId;
             projectName = project.name;
+          }
+        }
+
+        if (actorId) {
+          const [actor] = await tx.select().from(users).where(eq(users.id, actorId));
+          if (actor) {
+            actorName = `${actor.firstName} ${actor.lastName}`;
           }
         }
 
@@ -117,7 +126,7 @@ export class NotificationEvents {
               actorUserId: actorId,
               type: 'TASK_ASSIGNED',
               title: newTask.sprintId ? 'New Sprint Task Assigned' : 'New Task Assigned',
-              message: `"${newTask.name}" has been assigned to you.`,
+              message: `"${newTask.name}" has been assigned to you by ${actorName}.`,
               entityType: 'task',
               entityId: newTask.id,
               priority: 'info',
@@ -140,7 +149,7 @@ export class NotificationEvents {
               actorUserId: actorId,
               type: 'TASK_REASSIGNED',
               title: newTask.sprintId ? 'Sprint Task Reassigned' : 'Task Reassigned',
-              message: `"${newTask.name}" has been reassigned to you.`,
+              message: `"${newTask.name}" has been reassigned to you by ${actorName}.`,
               entityType: 'task',
               entityId: newTask.id,
               priority: 'info',

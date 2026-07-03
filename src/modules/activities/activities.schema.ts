@@ -11,6 +11,7 @@ export const createActivitySchema = z.object({
     endDate: z.string().optional().nullable(),
     assigneeId: z.string().uuid().optional().nullable(),
     priority: z.enum(['low', 'medium', 'high', 'critical']).optional().nullable(),
+    timeEstimate: z.number().int().min(0).optional().nullable(),
   }),
 });
 
@@ -28,5 +29,6 @@ export const updateActivitySchema = z.object({
     endDate: z.string().optional().nullable(),
     assigneeId: z.string().uuid().optional().nullable(),
     priority: z.enum(['low', 'medium', 'high', 'critical']).optional().nullable(),
+    timeEstimate: z.number().int().min(0).optional().nullable(),
   }),
 });
