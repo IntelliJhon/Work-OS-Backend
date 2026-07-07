@@ -9,14 +9,25 @@ const router = Router();
 // Configure multer memory storage
 const storage = multer.memoryStorage();
 
-// Supported MIME types
 const allowedMimeTypes = [
   'application/pdf',
   'image/png',
   'image/jpeg',
   'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'application/msword', // doc
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
-  'text/plain'
+  'application/vnd.ms-excel', // xls
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+  'application/vnd.ms-powerpoint', // ppt
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+  'text/plain',
+  'text/csv',
+  'application/json',
+  'application/zip',
+  'application/x-zip-compressed'
 ];
 
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
