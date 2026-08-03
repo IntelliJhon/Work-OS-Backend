@@ -4,6 +4,7 @@ import { users } from '../db/schema/users';
 import { eq, and } from 'drizzle-orm';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
+import { withTenant } from '../middleware/tenant.middleware';
 
 export interface OpenPointWebhookPayload {
   id: string;
@@ -47,12 +48,19 @@ export class WebhookService {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      const responseText = await response.text();
+
+      if (response.ok) {
+        logger.info('Webhook sent successfully.');
+        return true;
       }
 
-      logger.info('Webhook sent successfully.');
-      return true;
+      if (response.status === 500 && responseText.includes('No Respond to Webhook node')) {
+        logger.info('Webhook sent successfully (n8n received payload).');
+        return true;
+      }
+
+      throw new Error(`HTTP ${response.status} ${response.statusText}${responseText ? ` - ${responseText}` : ''}`);
     } catch (error: any) {
       logger.error(`Webhook notification failed:\n${error?.stack || error?.message || error}`);
       return false;
@@ -95,17 +103,19 @@ export class WebhookService {
       return;
     }
 
-    // Resolve project name if available
+    // Resolve project name if available (using withTenant to set RLS session context)
     let projectName: string | null = null;
     if (newTask.projectId) {
       try {
-        const [proj] = await db
-          .select({ name: projects.name })
-          .from(projects)
-          .where(and(eq(projects.id, newTask.projectId), eq(projects.tenantId, tenantId)));
-        if (proj) {
-          projectName = proj.name;
-        }
+        await withTenant(tenantId, async (tx) => {
+          const [proj] = await tx
+            .select({ name: projects.name })
+            .from(projects)
+            .where(and(eq(projects.id, newTask.projectId), eq(projects.tenantId, tenantId)));
+          if (proj) {
+            projectName = proj.name;
+          }
+        });
       } catch (err) {
         logger.warn({ err, projectId: newTask.projectId }, 'Failed to fetch project name for webhook payload');
       }
@@ -127,13 +137,15 @@ export class WebhookService {
       let assignedToName: string | null = subtask.assignee || null;
       if (!assignedToName && subtask.assigneeId) {
         try {
-          const [assignedUser] = await db
-            .select({ firstName: users.firstName, lastName: users.lastName, email: users.email })
-            .from(users)
-            .where(eq(users.id, subtask.assigneeId));
-          if (assignedUser) {
-            assignedToName = `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() || assignedUser.email;
-          }
+          await withTenant(tenantId, async (tx) => {
+            const [assignedUser] = await tx
+              .select({ firstName: users.firstName, lastName: users.lastName, email: users.email })
+              .from(users)
+              .where(eq(users.id, subtask.assigneeId));
+            if (assignedUser) {
+              assignedToName = `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() || assignedUser.email;
+            }
+          });
         } catch (err) {
           // ignore lookup error
         }
