@@ -16,6 +16,8 @@ const envSchema = z.object({
   CLOUDINARY_URL: z.string().url().optional(),
   GLOBAL_RATE_LIMIT_MAX: z.string().default('5000').transform(val => parseInt(val, 10)),
   AUTH_RATE_LIMIT_MAX: z.string().default('500').transform(val => parseInt(val, 10)),
+  N8N_OPEN_POINT_WEBHOOK: z.string().optional().default(''),
+  APP_URL: z.string().optional().default('http://localhost:5173'),
 });
 
 const _env = envSchema.safeParse(process.env);

@@ -10,6 +10,7 @@ import { ForbiddenError, NotFoundError } from '../../errors/workflow.errors';
 import { TaskOwnershipService } from './task-ownership.service';
 import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
+import { WebhookService } from '../../services/webhook.service';
 
 export class TasksController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -55,6 +56,16 @@ export class TasksController {
         return newTask;
       });
 
+      // Dispatch Open Point webhooks asynchronously after DB transaction completes (non-blocking)
+      WebhookService.processTaskSubtaskWebhooks({
+        tenantId,
+        user: req.user!,
+        oldTask: null,
+        newTask: result,
+      }).catch((err) => {
+        logger.error({ err }, 'Error in background Open Point webhook trigger');
+      });
+
       return res.status(201).json(result);
     } catch (error) {
       next(error);
@@ -79,12 +90,14 @@ export class TasksController {
     try {
       const tenantId = req.user!.tenantId;
       const id = req.params.id as string;
+      let fetchedOldTask: any = null;
 
       const result = await withTenant(tenantId, async (tx) => {
         const [oldTask] = await tx.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)));
         if (!oldTask) {
           throw new NotFoundError('Task not found');
         }
+        fetchedOldTask = oldTask;
 
         // Determine if user can update the task and get their access level
         const accessLevel = await TaskOwnershipService.getAccessLevel(
@@ -170,6 +183,16 @@ export class TasksController {
         }
 
         return updatedTask;
+      });
+
+      // Dispatch Open Point webhooks asynchronously after DB transaction completes (non-blocking)
+      WebhookService.processTaskSubtaskWebhooks({
+        tenantId,
+        user: req.user!,
+        oldTask: fetchedOldTask,
+        newTask: result,
+      }).catch((err) => {
+        logger.error({ err }, 'Error in background Open Point webhook trigger');
       });
 
       return res.json(result);
