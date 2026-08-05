@@ -16,3 +16,4 @@ export * from './failed_jobs';
 export * from './uploads';
 export * from './invitations';
 export * from './project_members';
+export * from './project_activities';

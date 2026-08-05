@@ -23,7 +23,25 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     });
   }
 
+  const rawMessage = err.message || '';
+  const isDbOrNetworkError =
+    rawMessage.includes('Failed query:') ||
+    rawMessage.includes('fetch failed') ||
+    rawMessage.includes('ENOTFOUND') ||
+    rawMessage.includes('ECONNREFUSED') ||
+    rawMessage.includes('ETIMEDOUT') ||
+    rawMessage.toLowerCase().includes('select "') ||
+    rawMessage.toLowerCase().includes('database');
+
+  if (isDbOrNetworkError) {
+    return res.status(503).json({
+      error: 'Unable to connect to database/server. Please check your internet connection and try again.',
+      message: 'Unable to connect to database/server. Please check your internet connection and try again.',
+    });
+  }
+
   return res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
+    error: rawMessage || 'Internal Server Error',
+    message: rawMessage || 'Internal Server Error',
   });
 };
