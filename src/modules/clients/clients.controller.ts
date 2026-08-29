@@ -138,14 +138,14 @@ export class ClientsController {
   static async saveClientComment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const tenantId = req.user?.tenantId;
-      const clientId = req.params.id;
+      const clientId = String(req.params.id);
       const { comment } = req.body;
 
       if (!tenantId || !clientId) {
         return res.status(400).json({ error: 'Missing tenant or client id' });
       }
 
-      const authorName = req.user?.email || 'Team Member';
+      const authorName = (req.user as any)?.email || (req.user as any)?.firstName || 'Team Member';
 
       // Check if note exists
       const existing = await db
