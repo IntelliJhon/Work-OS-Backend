@@ -18,6 +18,8 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.string().default('500').transform(val => parseInt(val, 10)),
   N8N_OPEN_POINT_WEBHOOK: z.string().optional().default(''),
   APP_URL: z.string().optional().default('http://localhost:5173'),
+  AUTOMATIONS_BUILDER_API_BASE: z.string().optional().default('https://partner-api.automationsbuilder.com'),
+  AUTOMATIONS_BUILDER_API_TOKEN: z.string().optional().default('ed30d865-61a9-4d02-9af8-e262cd9962d4'),
 });
 
 const _env = envSchema.safeParse(process.env);
