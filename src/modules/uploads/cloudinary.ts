@@ -2,11 +2,21 @@ import { v2 as cloudinary } from 'cloudinary';
 import streamifier from 'streamifier';
 import { env } from '../../config/env';
 
-// Configure cloudinary only if URL is present
+// Configure cloudinary with parsed credentials if URL is present
 if (env.CLOUDINARY_URL) {
-  cloudinary.config({
-    secure: true,
-  });
+  try {
+    const parsed = new URL(env.CLOUDINARY_URL);
+    cloudinary.config({
+      cloud_name: parsed.hostname,
+      api_key: parsed.username,
+      api_secret: parsed.password,
+      secure: true,
+    });
+  } catch {
+    cloudinary.config({
+      secure: true,
+    });
+  }
 }
 
 export const uploadStream = (buffer: Buffer, folder: string, originalName: string): Promise<any> => {

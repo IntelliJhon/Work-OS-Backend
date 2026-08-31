@@ -18,3 +18,5 @@ export * from './invitations';
 export * from './project_members';
 export * from './project_activities';
 export * from './client_notes';
+export * from './client_onboarding';
+export * from './client_documents';
