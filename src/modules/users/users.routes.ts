@@ -12,4 +12,6 @@ usersRouter.use(authenticate);
 usersRouter.post('/', requirePermissions(['workspace.members.invite']), validateRequest(createUserSchema), UsersController.create);
 usersRouter.get('/', UsersController.list);
 usersRouter.patch('/:id', requirePermissions(['workspace.members.update']), validateRequest(updateUserSchema), UsersController.update);
+usersRouter.put('/:id', requirePermissions(['workspace.members.update']), validateRequest(updateUserSchema), UsersController.update);
 usersRouter.delete('/:id', requirePermissions(['workspace.members.remove']), UsersController.delete);
+
