@@ -27,6 +27,7 @@ import { invitationsRouter } from './modules/invitations/invitations.routes';
 import { auditRouter } from './modules/security/audit.routes';
 import projectActivitiesRouter from './modules/project-activities/project-activities.routes';
 import { clientsRouter } from './modules/clients/clients.routes';
+import { complaintsRouter } from './modules/complaints/complaints.routes';
 
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -81,6 +82,7 @@ app.use('/api/invitations', invitationsRouter);
 app.use('/api/security', auditRouter);
 app.use('/api/project-activities', projectActivitiesRouter);
 app.use('/api/clients', clientsRouter);
+app.use('/api/complaints', complaintsRouter);
 
 // Background Jobs Dashboard
 app.use('/admin/queues', serverAdapter.getRouter());
