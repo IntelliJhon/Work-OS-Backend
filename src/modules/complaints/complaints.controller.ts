@@ -1,48 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
-import fs from 'fs';
-import path from 'path';
+import { sql } from 'drizzle-orm';
+import { db } from '../../db';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { WhatsAppService } from '../../services/whatsapp.service';
 import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_COMPLAINTS_URL || 'https://script.google.com/macros/s/AKfycbwEIj1gZusldwBYtIx4WeiLE9vBpZgpYiDqUVLvytP4AgBdsfSIuvqHtUvkGOidqx3iCQ/exec';
-
-const STORAGE_DIR = path.join(__dirname, '../../../data');
-const STORAGE_FILE = path.join(STORAGE_DIR, 'alerted_tickets.json');
-
-let alertedTickets = new Set<string>();
-let isStoreInitialized = false;
-
-function loadAlertedTickets() {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    if (fs.existsSync(STORAGE_FILE)) {
-      const fileContent = fs.readFileSync(STORAGE_FILE, 'utf-8');
-      const data = JSON.parse(fileContent);
-      if (Array.isArray(data)) {
-        alertedTickets = new Set(data);
-        isStoreInitialized = true;
-        logger.info(`[ComplaintsController] Loaded ${alertedTickets.size} previously alerted ticket IDs from persistent storage.`);
-      }
-    }
-  } catch (err: any) {
-    logger.warn(`[ComplaintsController] Failed to read alerted_tickets.json: ${err?.message}`);
-  }
-}
-
-function saveAlertedTickets() {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(Array.from(alertedTickets), null, 2), 'utf-8');
-  } catch (err: any) {
-    logger.warn(`[ComplaintsController] Failed to save alerted_tickets.json: ${err?.message}`);
-  }
-}
 
 export interface ComplaintItem {
   id: string;
@@ -66,13 +30,44 @@ export interface ComplaintItem {
 
 export class ComplaintsController {
   /**
+   * Helper to fetch set of already alerted ticket IDs from DB
+   */
+  private static async getAlertedTicketIds(): Promise<Set<string>> {
+    try {
+      const result = await db.execute(sql`SELECT ticket_id FROM alerted_complaint_tickets`);
+      const tickets = new Set<string>();
+      if (result && Array.isArray(result.rows)) {
+        for (const row of result.rows as any[]) {
+          if (row.ticket_id) tickets.add(String(row.ticket_id));
+        }
+      }
+      return tickets;
+    } catch (err: any) {
+      logger.error(`[ComplaintsController] Error fetching alerted tickets from DB: ${err?.message}`);
+      return new Set<string>();
+    }
+  }
+
+  /**
+   * Helper to record alerted ticket ID into DB
+   */
+  private static async markTicketAlerted(ticketId: string): Promise<void> {
+    try {
+      await db.execute(sql`
+        INSERT INTO alerted_complaint_tickets (ticket_id)
+        VALUES (${ticketId})
+        ON CONFLICT DO NOTHING
+      `);
+    } catch (err: any) {
+      logger.error(`[ComplaintsController] Error inserting ticket ${ticketId} into DB: ${err?.message}`);
+    }
+  }
+
+  /**
    * Internal helper to fetch and sync complaints from Google Sheet
    */
   static async fetchAndSyncComplaints(): Promise<ComplaintItem[]> {
-    if (!isStoreInitialized) {
-      loadAlertedTickets();
-    }
-
+    // 1. Fetch current Google Sheet complaints
     const response = await fetch(GOOGLE_SHEET_URL, {
       method: 'GET',
       headers: {
@@ -86,6 +81,9 @@ export class ComplaintsController {
     }
 
     const data = await response.json();
+    
+    // 2. Load set of already alerted ticket IDs from PostgreSQL DB
+    const alertedTickets = await ComplaintsController.getAlertedTicketIds();
     const newComplaints: ComplaintItem[] = [];
 
     const waauComplaints: ComplaintItem[] = (data.waau || []).map((w: any, idx: number) => {
@@ -107,10 +105,8 @@ export class ComplaintsController {
         updatedAt: w.dateTime || new Date().toISOString(),
       };
 
-      if (isStoreInitialized && !alertedTickets.has(item.ticketId)) {
+      if (!alertedTickets.has(item.ticketId)) {
         newComplaints.push(item);
-        alertedTickets.add(item.ticketId);
-      } else if (!isStoreInitialized) {
         alertedTickets.add(item.ticketId);
       }
 
@@ -135,29 +131,23 @@ export class ComplaintsController {
         updatedAt: s.createdAt || new Date().toISOString(),
       };
 
-      if (isStoreInitialized && !alertedTickets.has(item.ticketId)) {
+      if (!alertedTickets.has(item.ticketId)) {
         newComplaints.push(item);
-        alertedTickets.add(item.ticketId);
-      } else if (!isStoreInitialized) {
         alertedTickets.add(item.ticketId);
       }
 
       return item;
     });
 
-    // Mark store initialized complete after first scan if file didn't exist
-    if (!isStoreInitialized) {
-      isStoreInitialized = true;
-      saveAlertedTickets();
-      logger.info(`[ComplaintsController] Initialized baseline persistent store with ${alertedTickets.size} existing complaint tickets.`);
-    }
-
-    // Send WhatsApp template alert & emit Socket event for any newly detected complaint
+    // 3. Process & await WhatsApp template alerts for all newly detected complaints
     if (newComplaints.length > 0) {
-      saveAlertedTickets();
       logger.info(`[ComplaintsController] Detected ${newComplaints.length} NEW complaint(s). Dispatching WhatsApp notifications...`);
       for (const comp of newComplaints) {
-        void WhatsAppService.sendComplaintAlert({
+        // Record in DB first so duplicate alerts are impossible
+        await ComplaintsController.markTicketAlerted(comp.ticketId);
+
+        // Await WhatsApp dispatch so serverless processes do not freeze before sending!
+        await WhatsAppService.sendComplaintAlert({
           ticketId: comp.ticketId,
           channel: comp.channel,
           complainantName: comp.complainantName,
