@@ -5,12 +5,15 @@ import { initSocket } from './socket';
 import { startWorkers } from './jobs/workers';
 import { initializeSchedulers } from './jobs/schedulers';
 
+import { startGoogleSheetPolling } from './modules/complaints/complaints.controller';
+
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
   
-  // Start background jobs
+  // Start background jobs & Google Sheet complaint polling
   startWorkers();
   await initializeSchedulers();
+  startGoogleSheetPolling();
 });
 
 // Initialize Socket.IO with the HTTP server

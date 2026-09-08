@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { WhatsAppService } from '../../services/whatsapp.service';
+import { logger } from '../../config/logger';
 
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_COMPLAINTS_URL || 'https://script.google.com/macros/s/AKfycbwEIj1gZusldwBYtIx4WeiLE9vBpZgpYiDqUVLvytP4AgBdsfSIuvqHtUvkGOidqx3iCQ/exec';
 
-// Track seen tickets to trigger WhatsApp alerts for new complaints
+// Set of known ticket IDs to prevent duplicate alerts
 const knownTickets = new Set<string>();
+let isInitialized = false;
 
 export interface ComplaintItem {
   id: string;
@@ -28,98 +30,116 @@ export interface ComplaintItem {
 }
 
 export class ComplaintsController {
+  /**
+   * Internal helper to fetch and sync complaints from Google Sheet
+   */
+  static async fetchAndSyncComplaints(): Promise<ComplaintItem[]> {
+    const response = await fetch(GOOGLE_SHEET_URL, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+      redirect: 'follow'
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google Sheet Apps Script returned HTTP status ${response.status}`);
+    }
+
+    const data = await response.json();
+    const newComplaints: ComplaintItem[] = [];
+
+    const waauComplaints: ComplaintItem[] = (data.waau || []).map((w: any, idx: number) => {
+      const imageUrl = w.imageUrl && typeof w.imageUrl === 'string' && w.imageUrl.startsWith('http') ? w.imageUrl : undefined;
+      const item: ComplaintItem = {
+        id: `waau-gs-${w.ticketId || idx}`,
+        ticketId: w.ticketId || `WAAU-${idx + 100}`,
+        channel: 'waau',
+        complainantName: w.user || 'Unknown User',
+        complainantPhone: String(w.phone || 'N/A'),
+        company: w.company || '',
+        subject: w.details ? (w.details.length > 40 ? w.details.substring(0, 40) + '...' : w.details) : 'WAAU Complaint',
+        description: w.details || 'No complaint details.',
+        category: (w.section === 'Waau' ? 'Technical' : (w.section as any)) || 'Technical',
+        priority: 'high',
+        status: 'open',
+        imageUrl,
+        createdAt: w.dateTime || new Date().toISOString(),
+        updatedAt: w.dateTime || new Date().toISOString(),
+      };
+
+      if (!knownTickets.has(item.ticketId)) {
+        if (isInitialized) {
+          newComplaints.push(item);
+        }
+        knownTickets.add(item.ticketId);
+      }
+
+      return item;
+    });
+
+    const smsComplaints: ComplaintItem[] = (data.sms || []).map((s: any, idx: number) => {
+      const imageUrl = s.imageUrl && typeof s.imageUrl === 'string' && s.imageUrl.startsWith('http') ? s.imageUrl : undefined;
+      const item: ComplaintItem = {
+        id: `sms-gs-${s.ticketId || idx}`,
+        ticketId: s.ticketId || `SMS-${idx + 100}`,
+        channel: 'direct-sms',
+        complainantName: s.clientName || 'Unknown Client',
+        complainantPhone: String(s.phone || 'N/A'),
+        subject: s.complaint ? (s.complaint.length > 40 ? s.complaint.substring(0, 40) + '...' : s.complaint) : 'Direct SMS Complaint',
+        description: s.complaint || 'No complaint details.',
+        category: 'Service Quality',
+        priority: 'medium',
+        status: 'open',
+        imageUrl,
+        createdAt: s.createdAt || new Date().toISOString(),
+        updatedAt: s.createdAt || new Date().toISOString(),
+      };
+
+      if (!knownTickets.has(item.ticketId)) {
+        if (isInitialized) {
+          newComplaints.push(item);
+        }
+        knownTickets.add(item.ticketId);
+      }
+
+      return item;
+    });
+
+    // Mark initial baseline complete
+    if (!isInitialized) {
+      isInitialized = true;
+      logger.info(`[ComplaintsController] Initialized baseline with ${knownTickets.size} existing complaint tickets.`);
+    }
+
+    // Send WhatsApp template alert for any newly detected complaint
+    if (newComplaints.length > 0) {
+      logger.info(`[ComplaintsController] Detected ${newComplaints.length} NEW complaint(s). Dispatching WhatsApp notifications...`);
+      for (const comp of newComplaints) {
+        void WhatsAppService.sendComplaintAlert({
+          ticketId: comp.ticketId,
+          channel: comp.channel,
+          complainantName: comp.complainantName,
+          complainantPhone: comp.complainantPhone,
+          company: comp.company,
+          details: comp.description,
+          category: comp.category,
+          imageUrl: comp.imageUrl,
+          createdAt: comp.createdAt
+        });
+      }
+    }
+
+    return [...waauComplaints, ...smsComplaints];
+  }
+
   static async list(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const response = await fetch(GOOGLE_SHEET_URL, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        },
-        redirect: 'follow'
-      });
-
-      if (!response.ok) {
-        throw new Error(`Google Sheet Apps Script returned HTTP status ${response.status}`);
-      }
-
-      const data = await response.json();
-      const newComplaintsList: ComplaintItem[] = [];
-      
-      const waauComplaints: ComplaintItem[] = (data.waau || []).map((w: any, idx: number) => {
-        const imageUrl = w.imageUrl && typeof w.imageUrl === 'string' && w.imageUrl.startsWith('http') ? w.imageUrl : undefined;
-        const item: ComplaintItem = {
-          id: `waau-gs-${w.ticketId || idx}`,
-          ticketId: w.ticketId || `WAAU-${idx + 100}`,
-          channel: 'waau',
-          complainantName: w.user || 'Unknown User',
-          complainantPhone: String(w.phone || 'N/A'),
-          company: w.company || '',
-          subject: w.details ? (w.details.length > 40 ? w.details.substring(0, 40) + '...' : w.details) : 'WAAU Complaint',
-          description: w.details || 'No complaint details.',
-          category: (w.section === 'Waau' ? 'Technical' : (w.section as any)) || 'Technical',
-          priority: 'high',
-          status: 'open',
-          imageUrl,
-          createdAt: w.dateTime || new Date().toISOString(),
-          updatedAt: w.dateTime || new Date().toISOString(),
-        };
-
-        if (!knownTickets.has(item.ticketId)) {
-          newComplaintsList.push(item);
-          knownTickets.add(item.ticketId);
-        }
-
-        return item;
-      });
-
-      const smsComplaints: ComplaintItem[] = (data.sms || []).map((s: any, idx: number) => {
-        const imageUrl = s.imageUrl && typeof s.imageUrl === 'string' && s.imageUrl.startsWith('http') ? s.imageUrl : undefined;
-        const item: ComplaintItem = {
-          id: `sms-gs-${s.ticketId || idx}`,
-          ticketId: s.ticketId || `SMS-${idx + 100}`,
-          channel: 'direct-sms',
-          complainantName: s.clientName || 'Unknown Client',
-          complainantPhone: String(s.phone || 'N/A'),
-          subject: s.complaint ? (s.complaint.length > 40 ? s.complaint.substring(0, 40) + '...' : s.complaint) : 'Direct SMS Complaint',
-          description: s.complaint || 'No complaint details.',
-          category: 'Service Quality',
-          priority: 'medium',
-          status: 'open',
-          imageUrl,
-          createdAt: s.createdAt || new Date().toISOString(),
-          updatedAt: s.createdAt || new Date().toISOString(),
-        };
-
-        if (!knownTickets.has(item.ticketId)) {
-          newComplaintsList.push(item);
-          knownTickets.add(item.ticketId);
-        }
-
-        return item;
-      });
-
-      // If new tickets were registered since last check, send WhatsApp alerts
-      if (newComplaintsList.length > 0 && knownTickets.size > newComplaintsList.length) {
-        for (const newComp of newComplaintsList) {
-          void WhatsAppService.sendComplaintAlert({
-            ticketId: newComp.ticketId,
-            channel: newComp.channel,
-            complainantName: newComp.complainantName,
-            complainantPhone: newComp.complainantPhone,
-            company: newComp.company,
-            details: newComp.description,
-            category: newComp.category,
-            imageUrl: newComp.imageUrl,
-            createdAt: newComp.createdAt
-          });
-        }
-      }
-
+      const complaints = await ComplaintsController.fetchAndSyncComplaints();
       return res.json({
         success: true,
-        complaints: [...waauComplaints, ...smsComplaints],
-        waauCount: waauComplaints.length,
-        smsCount: smsComplaints.length,
+        complaints,
+        count: complaints.length,
       });
     } catch (error) {
       next(error);
@@ -135,12 +155,12 @@ export class ComplaintsController {
 
       const success = await WhatsAppService.sendComplaintAlert(
         {
-          ticketId: ticketId || 'TEST-WAAU-001',
+          ticketId: ticketId || 'WAAU-MANUAL-001',
           channel: channel || 'waau',
-          complainantName: complainantName || 'Test User',
-          complainantPhone: complainantPhone || '919061451636',
-          company: company || 'Test Company',
-          details: details || 'This is a test WhatsApp complaint alert from Work OS.',
+          complainantName: complainantName || 'Client',
+          complainantPhone: complainantPhone || 'N/A',
+          company: company || '',
+          details: details || 'New complaint submitted via Work OS dashboard.',
           category: category || 'Technical',
           imageUrl: imageUrl || undefined,
           createdAt: new Date().toISOString(),
@@ -156,4 +176,26 @@ export class ComplaintsController {
       next(error);
     }
   }
+}
+
+// Start continuous background polling (every 30 seconds) to check Google Sheet for new complaints automatically!
+let isPollingStarted = false;
+export function startGoogleSheetPolling() {
+  if (isPollingStarted) return;
+  isPollingStarted = true;
+  logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 30s)');
+
+  // Initial sync immediately
+  void ComplaintsController.fetchAndSyncComplaints().catch(err => {
+    logger.warn('[ComplaintsController] Initial Google Sheet sync failed:', err?.message || err);
+  });
+
+  // Poll every 30 seconds
+  setInterval(async () => {
+    try {
+      await ComplaintsController.fetchAndSyncComplaints();
+    } catch (err: any) {
+      logger.warn('[ComplaintsController] Background polling sync failed:', err?.message || err);
+    }
+  }, 30000);
 }
