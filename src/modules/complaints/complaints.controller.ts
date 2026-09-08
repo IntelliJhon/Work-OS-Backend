@@ -1,13 +1,48 @@
 import { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { WhatsAppService } from '../../services/whatsapp.service';
+import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_COMPLAINTS_URL || 'https://script.google.com/macros/s/AKfycbwEIj1gZusldwBYtIx4WeiLE9vBpZgpYiDqUVLvytP4AgBdsfSIuvqHtUvkGOidqx3iCQ/exec';
 
-// Set of known ticket IDs to prevent duplicate alerts
-const knownTickets = new Set<string>();
-let isInitialized = false;
+const STORAGE_DIR = path.join(__dirname, '../../../data');
+const STORAGE_FILE = path.join(STORAGE_DIR, 'alerted_tickets.json');
+
+let alertedTickets = new Set<string>();
+let isStoreInitialized = false;
+
+function loadAlertedTickets() {
+  try {
+    if (!fs.existsSync(STORAGE_DIR)) {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    }
+    if (fs.existsSync(STORAGE_FILE)) {
+      const fileContent = fs.readFileSync(STORAGE_FILE, 'utf-8');
+      const data = JSON.parse(fileContent);
+      if (Array.isArray(data)) {
+        alertedTickets = new Set(data);
+        isStoreInitialized = true;
+        logger.info(`[ComplaintsController] Loaded ${alertedTickets.size} previously alerted ticket IDs from persistent storage.`);
+      }
+    }
+  } catch (err: any) {
+    logger.warn(`[ComplaintsController] Failed to read alerted_tickets.json: ${err?.message}`);
+  }
+}
+
+function saveAlertedTickets() {
+  try {
+    if (!fs.existsSync(STORAGE_DIR)) {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    }
+    fs.writeFileSync(STORAGE_FILE, JSON.stringify(Array.from(alertedTickets), null, 2), 'utf-8');
+  } catch (err: any) {
+    logger.warn(`[ComplaintsController] Failed to save alerted_tickets.json: ${err?.message}`);
+  }
+}
 
 export interface ComplaintItem {
   id: string;
@@ -34,6 +69,10 @@ export class ComplaintsController {
    * Internal helper to fetch and sync complaints from Google Sheet
    */
   static async fetchAndSyncComplaints(): Promise<ComplaintItem[]> {
+    if (!isStoreInitialized) {
+      loadAlertedTickets();
+    }
+
     const response = await fetch(GOOGLE_SHEET_URL, {
       method: 'GET',
       headers: {
@@ -68,11 +107,11 @@ export class ComplaintsController {
         updatedAt: w.dateTime || new Date().toISOString(),
       };
 
-      if (!knownTickets.has(item.ticketId)) {
-        if (isInitialized) {
-          newComplaints.push(item);
-        }
-        knownTickets.add(item.ticketId);
+      if (isStoreInitialized && !alertedTickets.has(item.ticketId)) {
+        newComplaints.push(item);
+        alertedTickets.add(item.ticketId);
+      } else if (!isStoreInitialized) {
+        alertedTickets.add(item.ticketId);
       }
 
       return item;
@@ -96,24 +135,26 @@ export class ComplaintsController {
         updatedAt: s.createdAt || new Date().toISOString(),
       };
 
-      if (!knownTickets.has(item.ticketId)) {
-        if (isInitialized) {
-          newComplaints.push(item);
-        }
-        knownTickets.add(item.ticketId);
+      if (isStoreInitialized && !alertedTickets.has(item.ticketId)) {
+        newComplaints.push(item);
+        alertedTickets.add(item.ticketId);
+      } else if (!isStoreInitialized) {
+        alertedTickets.add(item.ticketId);
       }
 
       return item;
     });
 
-    // Mark initial baseline complete
-    if (!isInitialized) {
-      isInitialized = true;
-      logger.info(`[ComplaintsController] Initialized baseline with ${knownTickets.size} existing complaint tickets.`);
+    // Mark store initialized complete after first scan if file didn't exist
+    if (!isStoreInitialized) {
+      isStoreInitialized = true;
+      saveAlertedTickets();
+      logger.info(`[ComplaintsController] Initialized baseline persistent store with ${alertedTickets.size} existing complaint tickets.`);
     }
 
-    // Send WhatsApp template alert for any newly detected complaint
+    // Send WhatsApp template alert & emit Socket event for any newly detected complaint
     if (newComplaints.length > 0) {
+      saveAlertedTickets();
       logger.info(`[ComplaintsController] Detected ${newComplaints.length} NEW complaint(s). Dispatching WhatsApp notifications...`);
       for (const comp of newComplaints) {
         void WhatsAppService.sendComplaintAlert({
@@ -127,6 +168,17 @@ export class ComplaintsController {
           imageUrl: comp.imageUrl,
           createdAt: comp.createdAt
         });
+      }
+
+      // Real-time broadcast via Socket.IO
+      try {
+        const io = getIoInstance();
+        for (const comp of newComplaints) {
+          io.emit('complaint_new', comp);
+        }
+        io.emit('complaints_updated', { count: newComplaints.length });
+      } catch (err) {
+        // Socket instance not initialized yet
       }
     }
 
@@ -178,24 +230,24 @@ export class ComplaintsController {
   }
 }
 
-// Start continuous background polling (every 30 seconds) to check Google Sheet for new complaints automatically!
+// Start continuous background polling (every 10 seconds) to check Google Sheet for new complaints automatically!
 let isPollingStarted = false;
 export function startGoogleSheetPolling() {
   if (isPollingStarted) return;
   isPollingStarted = true;
-  logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 30s)');
+  logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 10s)');
 
   // Initial sync immediately
   void ComplaintsController.fetchAndSyncComplaints().catch(err => {
     logger.warn('[ComplaintsController] Initial Google Sheet sync failed:', err?.message || err);
   });
 
-  // Poll every 30 seconds
+  // Poll every 10 seconds
   setInterval(async () => {
     try {
       await ComplaintsController.fetchAndSyncComplaints();
     } catch (err: any) {
       logger.warn('[ComplaintsController] Background polling sync failed:', err?.message || err);
     }
-  }, 30000);
+  }, 10000);
 }
