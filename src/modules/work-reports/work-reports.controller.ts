@@ -56,6 +56,25 @@ export class WorkReportsController {
         return res.status(400).json({ error: 'Work report text content is required' });
       }
 
+      // Authorization Check: Only target employee or admin can create report
+      const userId = req.user?.id || (req.user as any)?.sub;
+      const userEmail = (req.user as any)?.email?.toLowerCase();
+      const userRole = (req.user as any)?.role || (req.user as any)?.roleName || '';
+      const isUserAdmin =
+        userRole.toLowerCase().includes('admin') ||
+        userRole.toLowerCase() === 'superadmin' ||
+        userRole.toLowerCase() === 'tenant admin';
+
+      const isTargetSelf =
+        userId === employeeId.trim() ||
+        (userEmail && userEmail === employeeId.trim().toLowerCase());
+
+      if (!isUserAdmin && !isTargetSelf) {
+        return res.status(403).json({
+          error: 'Permission denied: You can only create work reports for your own profile, unless you are an Admin.',
+        });
+      }
+
       const authorId = req.user?.id || (req.user as any)?.sub || 'unknown';
       const authorEmail = (req.user as any)?.email || '';
       const authorFirstName = (req.user as any)?.firstName || '';

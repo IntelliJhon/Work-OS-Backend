@@ -21,4 +21,5 @@ export * from './client_notes';
 export * from './client_onboarding';
 export * from './client_documents';
 export * from './work_reports';
+export * from './client_enquiries';
 
