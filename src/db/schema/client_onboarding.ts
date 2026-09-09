@@ -6,7 +6,7 @@ export const clientOnboarding = pgTable('client_onboarding', {
   tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
   clientName: varchar('client_name', { length: 255 }).notNull(),
   contactPerson: varchar('contact_person', { length: 255 }),
-  email: varchar('email', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }),
   phone: varchar('phone', { length: 50 }),
   country: varchar('country', { length: 50 }).default('IN'),
   stage: varchar('stage', { length: 50 }).notNull().default('initiation'),

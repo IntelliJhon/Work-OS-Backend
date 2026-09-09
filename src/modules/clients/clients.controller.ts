@@ -504,10 +504,6 @@ export class ClientsController {
         return res.status(400).json({ error: 'Client name is required' });
       }
 
-      if (!email || !email.trim()) {
-        return res.status(400).json({ error: 'Contact email is required' });
-      }
-
       const createdBy = (req.user as any)?.email || (req.user as any)?.firstName || 'Team Member';
 
       const [newClient] = await db
@@ -516,7 +512,7 @@ export class ClientsController {
           tenantId,
           clientName: clientName.trim(),
           contactPerson: contactPerson?.trim() || null,
-          email: email.trim(),
+          email: email?.trim() || null,
           phone: phone?.trim() || null,
           country: country?.trim() || 'IN',
           stage: stage || 'initiation',
@@ -564,8 +560,8 @@ export class ClientsController {
         .update(clientOnboarding)
         .set({
           ...(clientName !== undefined && { clientName: clientName.trim() }),
-          ...(contactPerson !== undefined && { contactPerson: contactPerson.trim() }),
-          ...(email !== undefined && { email: email.trim() }),
+          ...(contactPerson !== undefined && { contactPerson: contactPerson ? contactPerson.trim() : null }),
+          ...(email !== undefined && { email: email ? email.trim() : null }),
           ...(phone !== undefined && { phone: phone.trim() }),
           ...(country !== undefined && { country: country.trim() }),
           ...(stage !== undefined && { stage }),
