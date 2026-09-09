@@ -20,3 +20,5 @@ export * from './project_activities';
 export * from './client_notes';
 export * from './client_onboarding';
 export * from './client_documents';
+export * from './work_reports';
+
