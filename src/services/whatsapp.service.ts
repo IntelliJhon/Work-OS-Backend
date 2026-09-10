@@ -150,11 +150,22 @@ export class WhatsAppService {
       cleanRecipient = `91${cleanRecipient}`;
     }
 
-    // Limit parameter text length to Meta WhatsApp limits (max 1024 chars per text param)
+    // 1. Try sending direct free-form text message so it renders cleanly without complaint template wrapper
+    const textPayload = {
+      messaging_product: 'whatsapp',
+      to: cleanRecipient,
+      recipient_type: 'individual',
+      type: 'text',
+      text: {
+        body: summaryText,
+      },
+    };
+
+    // 2. Fallback template payload if free-form text is rejected outside 24h window
     const truncatedSummary = summaryText.length > 1000 ? summaryText.substring(0, 997) + '...' : summaryText;
     const formattedTime = new Date().toLocaleString();
 
-    const payload = {
+    const templatePayload = {
       messaging_product: 'whatsapp',
       to: cleanRecipient,
       recipient_type: 'individual',
@@ -182,9 +193,10 @@ export class WhatsAppService {
     let lastError = '';
     let lastData: any = null;
 
+    // Try endpoints with text payload first
     for (const apiUrl of targetUrls) {
       try {
-        logger.info(`[WhatsAppService] Dispatching WhatsApp expiry summary alert to ${cleanRecipient} via ${apiUrl}...`);
+        logger.info(`[WhatsAppService] Dispatching direct WhatsApp expiry summary text to ${cleanRecipient} via ${apiUrl}...`);
 
         const res = await fetch(apiUrl, {
           method: 'POST',
@@ -192,17 +204,46 @@ export class WhatsAppService {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(textPayload),
         });
 
         const data = await res.json();
         if (res.ok) {
-          logger.info(`[WhatsAppService] Successfully sent WhatsApp expiry summary alert to ${cleanRecipient} via ${apiUrl}`);
+          logger.info(`[WhatsAppService] Successfully sent WhatsApp expiry summary text to ${cleanRecipient} via ${apiUrl}`);
           return { success: true, apiResponse: data };
         } else {
-          lastError = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+          lastError = `Text API HTTP ${res.status}: ${JSON.stringify(data)}`;
           lastData = data;
-          logger.warn({ data, url: apiUrl }, `[WhatsAppService] WhatsApp API returned error for endpoint ${apiUrl}`);
+          logger.warn({ data, url: apiUrl }, `[WhatsAppService] Text API returned error for endpoint ${apiUrl}`);
+        }
+      } catch (err: any) {
+        lastError = `Fetch error: ${err.message}`;
+        logger.warn({ err, url: apiUrl }, `[WhatsAppService] Failed to reach endpoint ${apiUrl}`);
+      }
+    }
+
+    // Fallback: Try template payload if text payload failed
+    for (const apiUrl of targetUrls) {
+      try {
+        logger.info(`[WhatsAppService] Dispatching fallback template expiry summary to ${cleanRecipient} via ${apiUrl}...`);
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(templatePayload),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          logger.info(`[WhatsAppService] Successfully sent fallback template expiry summary to ${cleanRecipient} via ${apiUrl}`);
+          return { success: true, apiResponse: data };
+        } else {
+          lastError = `Template API HTTP ${res.status}: ${JSON.stringify(data)}`;
+          lastData = data;
+          logger.warn({ data, url: apiUrl }, `[WhatsAppService] Template API returned error for endpoint ${apiUrl}`);
         }
       } catch (err: any) {
         lastError = `Fetch error: ${err.message}`;
