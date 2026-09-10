@@ -22,6 +22,9 @@ const envSchema = z.object({
   AUTOMATIONS_BUILDER_API_TOKEN: z.string().optional().default('ed30d865-61a9-4d02-9af8-e262cd9962d4'),
   CRON_SECRET: z.string().optional().default('workos_expiry_cron_secret_2026'),
   EXPIRY_ALERT_TEST_NUMBER: z.string().optional().default('7736956474'),
+  CRM_API_ACCESS_TOKEN: z.string().optional().default('nN4nTt9OSg5MkY1MksuWT3VmMfTkMIYhSghRJcAREFTSAoetUtHWYNrleHTUXzEmsREFTSAEqnPgpf6OQ75GYg4oM3rXFE0bORedVU5ERVJTQ09SRQY56ho939eYgJz1H88zR855ikVU5ERVJTQ09SRQ6sVeIIw'),
+  CRM_PHONE_NUMBER_ID: z.string().optional().default('810611068796796'),
+  CRM_API_URL: z.string().optional().default('https://crmapi.waau.in/api/meta'),
 });
 
 const _env = envSchema.safeParse(process.env);

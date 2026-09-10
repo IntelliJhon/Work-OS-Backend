@@ -1,4 +1,5 @@
 import { logger } from '../config/logger';
+import { env } from '../config/env';
 
 export interface WhatsAppComplaintAlertPayload {
   ticketId: string;
@@ -14,11 +15,11 @@ export interface WhatsAppComplaintAlertPayload {
 
 export class WhatsAppService {
   private static getApiConfig() {
-    const crmApiUrl = (process.env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '');
+    const crmApiUrl = (process.env.CRM_API_URL || env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '');
     const apiVersion = process.env.CRM_API_VERSION || 'v19.0';
-    const accessToken = process.env.CRM_API_ACCESS_TOKEN || process.env.WHATSAPP_API_ACCESS_TOKEN || '';
-    const phoneNumberId = process.env.CRM_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || '810611068796796';
-    const developerPhones = (process.env.DEVELOPER_WHATSAPP_NUMBERS || process.env.DEVELOPER_PHONE_NUMBER || '919061451636')
+    const accessToken = process.env.CRM_API_ACCESS_TOKEN || process.env.WHATSAPP_API_ACCESS_TOKEN || env.CRM_API_ACCESS_TOKEN || 'nN4nTt9OSg5MkY1MksuWT3VmMfTkMIYhSghRJcAREFTSAoetUtHWYNrleHTUXzEmsREFTSAEqnPgpf6OQ75GYg4oM3rXFE0bORedVU5ERVJTQ09SRQY56ho939eYgJz1H88zR855ikVU5ERVJTQ09SRQ6sVeIIw';
+    const phoneNumberId = process.env.CRM_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || env.CRM_PHONE_NUMBER_ID || '810611068796796';
+    const developerPhones = (process.env.DEVELOPER_WHATSAPP_NUMBERS || process.env.DEVELOPER_PHONE_NUMBER || '917736956474,919061451636')
       .split(',')
       .map(p => p.trim())
       .filter(Boolean);
@@ -135,12 +136,13 @@ export class WhatsAppService {
    * Send WhatsApp Expiry Summary Alert to Admin / Team Number
    * Uses template name: "complaint" (or custom template)
    */
-  static async sendExpirySummaryAlert(summaryText: string, recipientPhone: string): Promise<boolean> {
+  static async sendExpirySummaryAlert(summaryText: string, recipientPhone: string): Promise<{ success: boolean; error?: string; apiResponse?: any }> {
     const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
 
     if (!accessToken || !phoneNumberId) {
-      logger.warn('[WhatsAppService] Access Token or Phone Number ID not configured in environment.');
-      return false;
+      const errStr = 'Access Token or Phone Number ID not configured in environment.';
+      logger.warn(`[WhatsAppService] ${errStr}`);
+      return { success: false, error: errStr };
     }
 
     let cleanRecipient = recipientPhone.replace(/[^0-9]/g, '');
@@ -177,7 +179,8 @@ export class WhatsAppService {
       }
     };
 
-    let sent = false;
+    let lastError = '';
+    let lastData: any = null;
 
     for (const apiUrl of targetUrls) {
       try {
@@ -195,17 +198,19 @@ export class WhatsAppService {
         const data = await res.json();
         if (res.ok) {
           logger.info(`[WhatsAppService] Successfully sent WhatsApp expiry summary alert to ${cleanRecipient} via ${apiUrl}`);
-          sent = true;
-          break;
+          return { success: true, apiResponse: data };
         } else {
+          lastError = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+          lastData = data;
           logger.warn({ data, url: apiUrl }, `[WhatsAppService] WhatsApp API returned error for endpoint ${apiUrl}`);
         }
       } catch (err: any) {
+        lastError = `Fetch error: ${err.message}`;
         logger.warn({ err, url: apiUrl }, `[WhatsAppService] Failed to reach endpoint ${apiUrl}`);
       }
     }
 
-    return sent;
+    return { success: false, error: lastError, apiResponse: lastData };
   }
 }
 

@@ -178,9 +178,18 @@ export class ExpiryCronController {
 
       // 4. Dispatch WhatsApp Summary Alert to Target Recipient
       let whatsappSent = false;
+      let whatsappError: string | undefined = undefined;
+      let whatsappApiResponse: any = undefined;
+
       try {
-        whatsappSent = await WhatsAppService.sendExpirySummaryAlert(summaryText, targetRecipient);
+        const waResult = await WhatsAppService.sendExpirySummaryAlert(summaryText, targetRecipient);
+        whatsappSent = waResult.success;
+        whatsappApiResponse = waResult.apiResponse;
+        if (!waResult.success) {
+          whatsappError = waResult.error;
+        }
       } catch (waErr: any) {
+        whatsappError = waErr.message;
         logger.error({ msg: 'Failed to send WhatsApp summary alert in cron controller', error: waErr.message });
       }
 
@@ -188,6 +197,7 @@ export class ExpiryCronController {
         msg: 'Successfully processed subscription expiry cron job',
         targetRecipient,
         whatsappSent,
+        whatsappError,
         totalClients: allClients.length,
         upcomingCount: upcomingExpiries.length,
         expiredCount: expiredAccounts.length,
@@ -197,9 +207,11 @@ export class ExpiryCronController {
       return res.json({
         success: true,
         whatsappSent,
+        whatsappError,
+        whatsappApiResponse,
         message: whatsappSent
           ? `Subscription expiry check completed. Summary sent via WhatsApp to ${targetRecipient}.`
-          : `Subscription expiry check completed, but WhatsApp message failed to deliver to ${targetRecipient}. Check logs.`,
+          : `Subscription expiry check completed, but WhatsApp message failed to deliver to ${targetRecipient}: ${whatsappError || 'Unknown error'}`,
         timestamp: now.toISOString(),
         targetRecipient,
         stats: {
