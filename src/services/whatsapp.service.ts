@@ -130,4 +130,82 @@ export class WhatsAppService {
 
     return allSuccess;
   }
+
+  /**
+   * Send WhatsApp Expiry Summary Alert to Admin / Team Number
+   * Uses template name: "complaint" (or custom template)
+   */
+  static async sendExpirySummaryAlert(summaryText: string, recipientPhone: string): Promise<boolean> {
+    const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
+
+    if (!accessToken || !phoneNumberId) {
+      logger.warn('[WhatsAppService] Access Token or Phone Number ID not configured in environment.');
+      return false;
+    }
+
+    let cleanRecipient = recipientPhone.replace(/[^0-9]/g, '');
+    if (cleanRecipient.length === 10) {
+      cleanRecipient = `91${cleanRecipient}`;
+    }
+
+    // Limit parameter text length to Meta WhatsApp limits (max 1024 chars per text param)
+    const truncatedSummary = summaryText.length > 1000 ? summaryText.substring(0, 997) + '...' : summaryText;
+    const formattedTime = new Date().toLocaleString();
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: cleanRecipient,
+      recipient_type: 'individual',
+      type: 'template',
+      template: {
+        name: 'complaint',
+        language: {
+          policy: 'deterministic',
+          code: 'en'
+        },
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: truncatedSummary },     // {{1}} Summary
+              { type: 'text', text: 'Work OS Expiry Audit' },// {{2}} Client Name / System
+              { type: 'text', text: cleanRecipient },        // {{3}} Phone Number
+              { type: 'text', text: formattedTime }          // {{4}} Time
+            ]
+          }
+        ]
+      }
+    };
+
+    let sent = false;
+
+    for (const apiUrl of targetUrls) {
+      try {
+        logger.info(`[WhatsAppService] Dispatching WhatsApp expiry summary alert to ${cleanRecipient} via ${apiUrl}...`);
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          logger.info(`[WhatsAppService] Successfully sent WhatsApp expiry summary alert to ${cleanRecipient} via ${apiUrl}`);
+          sent = true;
+          break;
+        } else {
+          logger.warn({ data, url: apiUrl }, `[WhatsAppService] WhatsApp API returned error for endpoint ${apiUrl}`);
+        }
+      } catch (err: any) {
+        logger.warn({ err, url: apiUrl }, `[WhatsAppService] Failed to reach endpoint ${apiUrl}`);
+      }
+    }
+
+    return sent;
+  }
 }
+

@@ -5,6 +5,7 @@ import { tenants } from '../../db/schema/tenants';
 import { eq, and, gte } from 'drizzle-orm';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { WhatsAppService } from '../../services/whatsapp.service';
 
 export class ExpiryCronController {
   static async checkSubscriptionExpiries(req: Request, res: Response) {
@@ -175,9 +176,18 @@ export class ExpiryCronController {
               .join('\n'),
       ].join('\n');
 
+      // 4. Dispatch WhatsApp Summary Alert to Target Recipient
+      let whatsappSent = false;
+      try {
+        whatsappSent = await WhatsAppService.sendExpirySummaryAlert(summaryText, targetRecipient);
+      } catch (waErr: any) {
+        logger.error({ msg: 'Failed to send WhatsApp summary alert in cron controller', error: waErr.message });
+      }
+
       logger.info({
         msg: 'Successfully processed subscription expiry cron job',
         targetRecipient,
+        whatsappSent,
         totalClients: allClients.length,
         upcomingCount: upcomingExpiries.length,
         expiredCount: expiredAccounts.length,
@@ -186,7 +196,10 @@ export class ExpiryCronController {
 
       return res.json({
         success: true,
-        message: `Subscription expiry check completed. Summary generated for target recipient ${targetRecipient}.`,
+        whatsappSent,
+        message: whatsappSent
+          ? `Subscription expiry check completed. Summary sent via WhatsApp to ${targetRecipient}.`
+          : `Subscription expiry check completed, but WhatsApp message failed to deliver to ${targetRecipient}. Check logs.`,
         timestamp: now.toISOString(),
         targetRecipient,
         stats: {
