@@ -30,6 +30,7 @@ import { clientsRouter } from './modules/clients/clients.routes';
 import { complaintsRouter } from './modules/complaints/complaints.routes';
 import { workReportsRouter } from './modules/work-reports/work-reports.routes';
 import clientEnquiriesRouter from './modules/clients/client-enquiries.routes';
+import expiryCronRouter from './modules/cron/expiry-cron.routes';
 
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -87,6 +88,7 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/clients/enquiries', clientEnquiriesRouter);
 app.use('/api/complaints', complaintsRouter);
 app.use('/api/work-reports', workReportsRouter);
+app.use('/api/cron', expiryCronRouter);
 
 // Background Jobs Dashboard
 app.use('/admin/queues', serverAdapter.getRouter());

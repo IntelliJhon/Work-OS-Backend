@@ -20,6 +20,8 @@ const envSchema = z.object({
   APP_URL: z.string().optional().default('http://localhost:5173'),
   AUTOMATIONS_BUILDER_API_BASE: z.string().optional().default('https://partner-api.automationsbuilder.com'),
   AUTOMATIONS_BUILDER_API_TOKEN: z.string().optional().default('ed30d865-61a9-4d02-9af8-e262cd9962d4'),
+  CRON_SECRET: z.string().optional().default('workos_expiry_cron_secret_2026'),
+  EXPIRY_ALERT_TEST_NUMBER: z.string().optional().default('7736956474'),
 });
 
 const _env = envSchema.safeParse(process.env);
