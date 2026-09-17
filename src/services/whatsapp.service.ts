@@ -253,5 +253,86 @@ export class WhatsAppService {
 
     return { success: false, error: lastError, apiResponse: lastData };
   }
+
+  /**
+   * Send WhatsApp 1-Day Expiry Template Message directly to individual client
+   * Uses template name: "subscription_expiry_1day"
+   * Parameter {{1}}: Client Name
+   * Parameter {{2}}: Expiry Date
+   */
+  static async sendIndividual1DayExpiryAlert(
+    clientName: string,
+    expiryDateFormatted: string,
+    recipientPhone: string
+  ): Promise<{ success: boolean; error?: string; apiResponse?: any }> {
+    const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
+
+    if (!accessToken || !phoneNumberId) {
+      const errStr = 'Access Token or Phone Number ID not configured in environment.';
+      logger.warn(`[WhatsAppService] ${errStr}`);
+      return { success: false, error: errStr };
+    }
+
+    let cleanRecipient = recipientPhone.replace(/[^0-9]/g, '');
+    if (cleanRecipient.length === 10) {
+      cleanRecipient = `91${cleanRecipient}`;
+    }
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: cleanRecipient,
+      recipient_type: 'individual',
+      type: 'template',
+      template: {
+        name: 'subscription_expiry_1day',
+        language: {
+          policy: 'deterministic',
+          code: 'en'
+        },
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: clientName || 'Client' },
+              { type: 'text', text: expiryDateFormatted }
+            ]
+          }
+        ]
+      }
+    };
+
+    let lastError = '';
+    let lastData: any = null;
+
+    for (const apiUrl of targetUrls) {
+      try {
+        logger.info(`[WhatsAppService] Dispatching 1-day expiry template alert to ${cleanRecipient} via ${apiUrl}...`);
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          logger.info(`[WhatsAppService] Successfully sent 1-day expiry template alert to ${cleanRecipient} via ${apiUrl}`);
+          return { success: true, apiResponse: data };
+        } else {
+          lastError = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+          lastData = data;
+          logger.warn({ data, url: apiUrl }, `[WhatsAppService] WhatsApp API returned error for endpoint ${apiUrl}`);
+        }
+      } catch (err: any) {
+        lastError = `Fetch error: ${err.message}`;
+        logger.warn({ err, url: apiUrl }, `[WhatsAppService] Failed to reach endpoint ${apiUrl}`);
+      }
+    }
+
+    return { success: false, error: lastError, apiResponse: lastData };
+  }
 }
 
