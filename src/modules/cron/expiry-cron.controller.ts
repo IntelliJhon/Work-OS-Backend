@@ -195,7 +195,7 @@ export class ExpiryCronController {
           newAlertsRecorded: newAlertsToInsert.length,
           individual1DayAlertsSentCount: individualAlertsSent.length,
         },
-        individual1DayAlertsSent,
+        individual1DayAlertsSent: individualAlertsSent,
         upcomingExpiries,
         expiredAccounts,
       });
