@@ -164,6 +164,24 @@ export class ExpiryCronController {
         }
       }
 
+      // If force=true is passed for testing and no natural 1-day alert was triggered, send a test 1-day template to test recipient
+      if (isForce && individualAlertsSent.length === 0 && upcomingExpiries.length > 0) {
+        const testClient = upcomingExpiries[0];
+        const expiryDateFormatted = new Date(testClient.expiryDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+        try {
+          const res1DayTest = await WhatsAppService.sendIndividual1DayExpiryAlert(testClient.name, expiryDateFormatted, targetRecipient);
+          individualAlertsSent.push({
+            clientId: testClient.id,
+            clientName: `${testClient.name} (Test Simulation)`,
+            phone: targetRecipient,
+            sent: res1DayTest.success,
+            error: res1DayTest.error,
+          });
+        } catch (testErr: any) {
+          logger.error({ msg: 'Failed sending test 1-day individual alert in cron', error: testErr.message });
+        }
+      }
+
       // Record new alerts in database
       if (newAlertsToInsert.length > 0) {
         await db.insert(subscriptionExpiryAlerts).values(newAlertsToInsert);
