@@ -75,6 +75,7 @@ export class ExpiryCronController {
       const upcomingExpiries: any[] = [];
       const expiredAccounts: any[] = [];
       const newAlertsToInsert: any[] = [];
+      const individualAlertsSent: any[] = [];
 
       for (const client of allClients) {
         if (!client.expiry) continue;
@@ -111,7 +112,38 @@ export class ExpiryCronController {
           expiredAccounts.push(clientInfo);
         }
 
-        if (milestone) {
+        // Send individual 1-Day Expiry Template Message if milestone is 1_DAY_BEFORE
+        if (milestone === '1_DAY_BEFORE') {
+          const alertKey = `${client.id}_${milestone}`;
+          if (!sentAlertsKeySet.has(alertKey)) {
+            const clientPhone = String(client.phone || client.profile?.phone || client.mobile || targetRecipient).trim();
+            const expiryDateFormatted = expiryDate.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
+            try {
+              const res1Day = await WhatsAppService.sendIndividual1DayExpiryAlert(fullName, expiryDateFormatted, clientPhone);
+              individualAlertsSent.push({
+                clientId: client.id,
+                clientName: fullName,
+                phone: clientPhone,
+                sent: res1Day.success,
+                error: res1Day.error,
+              });
+            } catch (err1Day: any) {
+              logger.error({ msg: 'Failed sending 1-day individual alert in cron', client: fullName, error: err1Day.message });
+            }
+
+            newAlertsToInsert.push({
+              clientId: client.id,
+              clientName: fullName,
+              clientEmail: client.email,
+              recipientNumber: clientPhone,
+              alertMilestone: milestone,
+              expiryDate: expiryDate,
+              sentAt: now,
+            });
+            sentAlertsKeySet.add(alertKey);
+          }
+        } else if (milestone) {
           const alertKey = `${client.id}_${milestone}`;
           if (!sentAlertsKeySet.has(alertKey)) {
             newAlertsToInsert.push({
@@ -202,6 +234,7 @@ export class ExpiryCronController {
         upcomingCount: upcomingExpiries.length,
         expiredCount: expiredAccounts.length,
         newAlertsRecorded: newAlertsToInsert.length,
+        individual1DayAlertsSentCount: individualAlertsSent.length,
       });
 
       return res.json({
@@ -219,7 +252,9 @@ export class ExpiryCronController {
           upcomingExpiriesCount: upcomingExpiries.length,
           expiredAccountsCount: expiredAccounts.length,
           newAlertsRecorded: newAlertsToInsert.length,
+          individual1DayAlertsSentCount: individualAlertsSent.length,
         },
+        individual1DayAlertsSent,
         summaryReportText: summaryText,
         upcomingExpiries,
         expiredAccounts,
