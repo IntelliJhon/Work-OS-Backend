@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { subscriptionExpiryAlerts } from '../../db/schema/subscription_expiry_alerts';
-import { tenants } from '../../db/schema/tenants';
-import { eq, and, gte } from 'drizzle-orm';
+import { gte } from 'drizzle-orm';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { WhatsAppService } from '../../services/whatsapp.service';
@@ -19,7 +18,7 @@ export class ExpiryCronController {
         return res.status(401).json({ error: 'Unauthorized: Invalid x-cron-secret header token' });
       }
 
-      // 2. Determine target admin recipient number for Option B Summary Alert
+      // 2. Determine target recipient number for alerts
       const targetRecipient =
         String(req.body?.targetNumber || req.query.targetNumber || env.EXPIRY_ALERT_TEST_NUMBER || '7736956474').trim();
 
@@ -147,38 +146,25 @@ export class ExpiryCronController {
             });
             sentAlertsKeySet.add(alertKey);
           }
-        } else if (milestone) {
-          const alertKey = `${client.id}_${milestone}`;
-          if (!sentAlertsKeySet.has(alertKey)) {
-            newAlertsToInsert.push({
-              clientId: client.id,
-              clientName: fullName,
-              clientEmail: client.email,
-              recipientNumber: targetRecipient,
-              alertMilestone: milestone,
-              expiryDate: expiryDate,
-              sentAt: now,
-            });
-            sentAlertsKeySet.add(alertKey);
-          }
         }
       }
 
-      // If force=true is passed for testing and no natural 1-day alert was triggered, send a test 1-day template to test recipient
-      if (isForce && individualAlertsSent.length === 0 && upcomingExpiries.length > 0) {
-        const testClient = upcomingExpiries[0];
-        const expiryDateFormatted = new Date(testClient.expiryDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+      // If no natural 1-day alert was triggered today, send the subscription_expiry_1day template to targetRecipient with upcoming client info
+      if (individualAlertsSent.length === 0) {
+        const targetClient = upcomingExpiries.length > 0 ? upcomingExpiries[0] : { name: 'Work OS Client', expiryDate: new Date(Date.now() + 86400000 * 7).toISOString() };
+        const expiryDateFormatted = new Date(targetClient.expiryDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
         try {
-          const res1DayTest = await WhatsAppService.sendIndividual1DayExpiryAlert(testClient.name, expiryDateFormatted, targetRecipient);
+          const res1DayAlert = await WhatsAppService.sendIndividual1DayExpiryAlert(targetClient.name, expiryDateFormatted, targetRecipient);
           individualAlertsSent.push({
-            clientId: testClient.id,
-            clientName: `${testClient.name} (Test Simulation)`,
+            clientId: targetClient.id || 'upcoming_client_alert',
+            clientName: targetClient.name,
             phone: targetRecipient,
-            sent: res1DayTest.success,
-            error: res1DayTest.error,
+            sent: res1DayAlert.success,
+            error: res1DayAlert.error,
+            isTargetRecipientAlert: true,
           });
         } catch (testErr: any) {
-          logger.error({ msg: 'Failed sending test 1-day individual alert in cron', error: testErr.message });
+          logger.error({ msg: 'Failed sending targetRecipient 1-day individual alert in cron', error: testErr.message });
         }
       }
 
@@ -187,71 +173,9 @@ export class ExpiryCronController {
         await db.insert(subscriptionExpiryAlerts).values(newAlertsToInsert);
       }
 
-      // Construct Option B Summary Report for Admin Number 7736956474
-      const formattedDate = now.toLocaleDateString('en-US', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-
-      const summaryText = [
-        `🚨 WORK OS - SUBSCRIPTION EXPIRY SUMMARY REPORT`,
-        `📱 Target Recipient: ${targetRecipient}`,
-        `⏰ Scheduled Trigger Time: 10:00 AM (${formattedDate})`,
-        ``,
-        `📊 SUMMARY OVERVIEW:`,
-        `• Total Clients Audited: ${allClients.length}`,
-        `• Upcoming Expiries (<= 7 days): ${upcomingExpiries.length}`,
-        `• Expired Accounts: ${expiredAccounts.length}`,
-        `• New Alert Logs Recorded Today: ${newAlertsToInsert.length}`,
-        ``,
-        `⚠️ UPCOMING EXPIRIES (Next 7 Days):`,
-        upcomingExpiries.length === 0
-          ? `  (None - All accounts healthy)`
-          : upcomingExpiries
-              .slice(0, 10)
-              .map(
-                (c, i) =>
-                  `  ${i + 1}. ${c.name} (${c.email})\n     Expires: ${new Date(c.expiryDate).toLocaleDateString()} (In ${c.diffDays} day${c.diffDays === 1 ? '' : 's'})`
-              )
-              .join('\n'),
-        ``,
-        `🚨 RECENTLY EXPIRED ACCOUNTS:`,
-        expiredAccounts.length === 0
-          ? `  (None)`
-          : expiredAccounts
-              .slice(0, 5)
-              .map(
-                (c, i) =>
-                  `  ${i + 1}. ${c.name} (${c.email})\n     Expired on: ${new Date(c.expiryDate).toLocaleDateString()}`
-              )
-              .join('\n'),
-      ].join('\n');
-
-      // 4. Dispatch WhatsApp Summary Alert to Target Recipient
-      let whatsappSent = false;
-      let whatsappError: string | undefined = undefined;
-      let whatsappApiResponse: any = undefined;
-
-      try {
-        const waResult = await WhatsAppService.sendExpirySummaryAlert(summaryText, targetRecipient);
-        whatsappSent = waResult.success;
-        whatsappApiResponse = waResult.apiResponse;
-        if (!waResult.success) {
-          whatsappError = waResult.error;
-        }
-      } catch (waErr: any) {
-        whatsappError = waErr.message;
-        logger.error({ msg: 'Failed to send WhatsApp summary alert in cron controller', error: waErr.message });
-      }
-
       logger.info({
-        msg: 'Successfully processed subscription expiry cron job',
+        msg: 'Successfully processed subscription expiry cron job (template only)',
         targetRecipient,
-        whatsappSent,
-        whatsappError,
         totalClients: allClients.length,
         upcomingCount: upcomingExpiries.length,
         expiredCount: expiredAccounts.length,
@@ -261,12 +185,7 @@ export class ExpiryCronController {
 
       return res.json({
         success: true,
-        whatsappSent,
-        whatsappError,
-        whatsappApiResponse,
-        message: whatsappSent
-          ? `Subscription expiry check completed. Summary sent via WhatsApp to ${targetRecipient}.`
-          : `Subscription expiry check completed, but WhatsApp message failed to deliver to ${targetRecipient}: ${whatsappError || 'Unknown error'}`,
+        message: `Subscription expiry check completed. Meta WhatsApp template (subscription_expiry_1day) dispatched.`,
         timestamp: now.toISOString(),
         targetRecipient,
         stats: {
@@ -277,7 +196,6 @@ export class ExpiryCronController {
           individual1DayAlertsSentCount: individualAlertsSent.length,
         },
         individual1DayAlertsSent,
-        summaryReportText: summaryText,
         upcomingExpiries,
         expiredAccounts,
       });
@@ -287,3 +205,4 @@ export class ExpiryCronController {
     }
   }
 }
+
