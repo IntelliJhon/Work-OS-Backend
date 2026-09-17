@@ -62,11 +62,15 @@ export class ExpiryCronController {
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-      // Get existing sent alerts for today to prevent duplicates
-      const alertsToday = await db
-        .select()
-        .from(subscriptionExpiryAlerts)
-        .where(gte(subscriptionExpiryAlerts.sentAt, todayStart));
+      const isForce = req.query.force === 'true' || req.body?.force === true;
+
+      // Get existing sent alerts for today to prevent duplicates (bypassed if force=true)
+      const alertsToday = isForce
+        ? []
+        : await db
+            .select()
+            .from(subscriptionExpiryAlerts)
+            .where(gte(subscriptionExpiryAlerts.sentAt, todayStart));
 
       const sentAlertsKeySet = new Set(
         alertsToday.map(a => `${a.clientId}_${a.alertMilestone}`)
