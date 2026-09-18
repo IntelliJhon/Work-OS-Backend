@@ -26,6 +26,7 @@ Thumbs.db
 
 # Scratch/debug scripts
 scratch_*.js
+scratch/
 
 # IDE specific settings
 .idea/
