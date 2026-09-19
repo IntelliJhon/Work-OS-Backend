@@ -26,12 +26,12 @@ export class ExpiryCronController {
       const apiBase = env.AUTOMATIONS_BUILDER_API_BASE || 'https://partner-api.automationsbuilder.com';
       const apiToken = env.AUTOMATIONS_BUILDER_API_TOKEN;
 
-      const limit = 50;
+      const limit = 20;
       let page = 1;
       let hasMore = true;
       const allClients: any[] = [];
 
-      while (hasMore && page <= 20) {
+      while (hasMore && page <= 25) {
         const url = `${apiBase}/api/v1/users?page=${page}&limit=${limit}`;
         const response = await fetch(url, {
           method: 'GET',
@@ -53,8 +53,11 @@ export class ExpiryCronController {
           hasMore = false;
         } else {
           allClients.push(...batch);
-          if (batch.length < limit) hasMore = false;
-          else page++;
+          if (batch.length < limit) {
+            hasMore = false;
+          } else {
+            page++;
+          }
         }
       }
 
@@ -149,9 +152,9 @@ export class ExpiryCronController {
         }
       }
 
-      // If no natural 1-day alert was triggered today, send the subscription_expiry_1day template to targetRecipient with upcoming client info
-      if (individualAlertsSent.length === 0) {
-        const targetClient = upcomingExpiries.length > 0 ? upcomingExpiries[0] : { name: 'Work OS Client', expiryDate: new Date(Date.now() + 86400000 * 7).toISOString() };
+      // Only send fallback test alert to targetRecipient if manually forced (?force=true) and no natural 1-day alert was triggered
+      if (isForce && individualAlertsSent.length === 0 && upcomingExpiries.length > 0) {
+        const targetClient = upcomingExpiries[0];
         const expiryDateFormatted = new Date(targetClient.expiryDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
         try {
           const res1DayAlert = await WhatsAppService.sendIndividual1DayExpiryAlert(targetClient.name, expiryDateFormatted, targetRecipient);

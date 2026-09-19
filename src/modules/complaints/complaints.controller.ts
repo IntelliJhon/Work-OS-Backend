@@ -29,37 +29,55 @@ export interface ComplaintItem {
 }
 
 export class ComplaintsController {
+  // In-memory cache of alerted ticket IDs across server lifecycle to guarantee deduplication
+  private static knownAlertedTickets: Set<string> = new Set<string>();
+  private static isDbInitialized: boolean = false;
+
   /**
-   * Helper to fetch set of already alerted ticket IDs from DB
+   * Helper to fetch set of already alerted ticket IDs from DB.
+   * Fail-Safe: Never returns an empty set on DB failure unless verified from DB.
+   * If DB query fails, it returns the in-memory cache if initialized, or null to signal failure.
    */
-  private static async getAlertedTicketIds(): Promise<Set<string>> {
+  private static async getAlertedTicketIds(): Promise<Set<string> | null> {
     try {
       const result = await db.execute(sql`SELECT ticket_id FROM alerted_complaint_tickets`);
-      const tickets = new Set<string>();
       if (result && Array.isArray(result.rows)) {
         for (const row of result.rows as any[]) {
-          if (row.ticket_id) tickets.add(String(row.ticket_id));
+          if (row.ticket_id) {
+            ComplaintsController.knownAlertedTickets.add(String(row.ticket_id).trim());
+          }
         }
+        ComplaintsController.isDbInitialized = true;
       }
-      return tickets;
+      return ComplaintsController.knownAlertedTickets;
     } catch (err: any) {
       logger.error(`[ComplaintsController] Error fetching alerted tickets from DB: ${err?.message}`);
-      return new Set<string>();
+      if (ComplaintsController.isDbInitialized) {
+        logger.warn('[ComplaintsController] Falling back to in-memory alerted tickets cache due to DB error');
+        return ComplaintsController.knownAlertedTickets;
+      }
+      // DB has never successfully loaded and is currently unreachable -> return null to abort alert dispatching
+      return null;
     }
   }
 
   /**
-   * Helper to record alerted ticket ID into DB
+   * Helper to record alerted ticket ID into DB and memory cache.
+   * Returns true only if successfully committed to the database.
    */
-  private static async markTicketAlerted(ticketId: string): Promise<void> {
+  private static async markTicketAlerted(ticketId: string): Promise<boolean> {
+    const cleanId = ticketId.trim();
+    ComplaintsController.knownAlertedTickets.add(cleanId);
     try {
       await db.execute(sql`
         INSERT INTO alerted_complaint_tickets (ticket_id)
-        VALUES (${ticketId})
+        VALUES (${cleanId})
         ON CONFLICT DO NOTHING
       `);
+      return true;
     } catch (err: any) {
-      logger.error(`[ComplaintsController] Error inserting ticket ${ticketId} into DB: ${err?.message}`);
+      logger.error(`[ComplaintsController] Error inserting ticket ${cleanId} into DB: ${err?.message}`);
+      return false;
     }
   }
 
@@ -84,13 +102,19 @@ export class ComplaintsController {
     
     // 2. Load set of already alerted ticket IDs from PostgreSQL DB
     const alertedTickets = await ComplaintsController.getAlertedTicketIds();
+    const canDispatchAlerts = alertedTickets !== null;
+    if (!canDispatchAlerts) {
+      logger.warn('[ComplaintsController] Database unreachable for alerted tickets verification. Skipping WhatsApp notifications to prevent duplicate alerts.');
+    }
+
     const newComplaints: ComplaintItem[] = [];
 
     const waauComplaints: ComplaintItem[] = (data.waau || []).map((w: any, idx: number) => {
       const imageUrl = w.imageUrl && typeof w.imageUrl === 'string' && w.imageUrl.startsWith('http') ? w.imageUrl : undefined;
+      const cleanTicketId = (w.ticketId || `WAAU-${idx + 100}`).trim();
       const item: ComplaintItem = {
         id: `waau-gs-${w.ticketId || idx}`,
-        ticketId: w.ticketId || `WAAU-${idx + 100}`,
+        ticketId: cleanTicketId,
         channel: 'waau',
         complainantName: w.user || 'Unknown User',
         complainantPhone: String(w.phone || 'N/A'),
@@ -105,7 +129,7 @@ export class ComplaintsController {
         updatedAt: w.dateTime || new Date().toISOString(),
       };
 
-      if (!alertedTickets.has(item.ticketId)) {
+      if (canDispatchAlerts && !alertedTickets.has(item.ticketId)) {
         newComplaints.push(item);
         alertedTickets.add(item.ticketId);
       }
@@ -115,9 +139,10 @@ export class ComplaintsController {
 
     const smsComplaints: ComplaintItem[] = (data.sms || []).map((s: any, idx: number) => {
       const imageUrl = s.imageUrl && typeof s.imageUrl === 'string' && s.imageUrl.startsWith('http') ? s.imageUrl : undefined;
+      const cleanTicketId = (s.ticketId || `SMS-${idx + 100}`).trim();
       const item: ComplaintItem = {
         id: `sms-gs-${s.ticketId || idx}`,
-        ticketId: s.ticketId || `SMS-${idx + 100}`,
+        ticketId: cleanTicketId,
         channel: 'direct-sms',
         complainantName: s.clientName || 'Unknown Client',
         complainantPhone: String(s.phone || 'N/A'),
@@ -131,7 +156,7 @@ export class ComplaintsController {
         updatedAt: s.createdAt || new Date().toISOString(),
       };
 
-      if (!alertedTickets.has(item.ticketId)) {
+      if (canDispatchAlerts && !alertedTickets.has(item.ticketId)) {
         newComplaints.push(item);
         alertedTickets.add(item.ticketId);
       }
@@ -143,10 +168,14 @@ export class ComplaintsController {
     if (newComplaints.length > 0) {
       logger.info(`[ComplaintsController] Detected ${newComplaints.length} NEW complaint(s). Dispatching WhatsApp notifications...`);
       for (const comp of newComplaints) {
-        // Record in DB first so duplicate alerts are impossible
-        await ComplaintsController.markTicketAlerted(comp.ticketId);
+        // Record in DB first so duplicate alerts are impossible across instances and restarts
+        const recorded = await ComplaintsController.markTicketAlerted(comp.ticketId);
+        if (!recorded) {
+          logger.warn(`[ComplaintsController] Skipping WhatsApp alert for #${comp.ticketId} because DB recording failed.`);
+          continue;
+        }
 
-        // Await WhatsApp dispatch so serverless processes do not freeze before sending!
+        // Await WhatsApp dispatch
         await WhatsAppService.sendComplaintAlert({
           ticketId: comp.ticketId,
           channel: comp.channel,
@@ -220,24 +249,30 @@ export class ComplaintsController {
   }
 }
 
-// Start continuous background polling (every 10 seconds) to check Google Sheet for new complaints automatically!
+// Start continuous background polling (every 60 seconds) to check Google Sheet for new complaints automatically!
 let isPollingStarted = false;
+let isSyncing = false;
+
 export function startGoogleSheetPolling() {
   if (isPollingStarted) return;
   isPollingStarted = true;
-  logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 10s)');
+  logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 60s)');
 
-  // Initial sync immediately
-  void ComplaintsController.fetchAndSyncComplaints().catch(err => {
-    logger.warn('[ComplaintsController] Initial Google Sheet sync failed:', err?.message || err);
-  });
-
-  // Poll every 10 seconds
-  setInterval(async () => {
+  const runSync = async () => {
+    if (isSyncing) return;
+    isSyncing = true;
     try {
       await ComplaintsController.fetchAndSyncComplaints();
     } catch (err: any) {
       logger.warn('[ComplaintsController] Background polling sync failed:', err?.message || err);
+    } finally {
+      isSyncing = false;
     }
-  }, 10000);
+  };
+
+  // Initial sync immediately
+  void runSync();
+
+  // Poll every 60 seconds (1 minute)
+  setInterval(runSync, 60000);
 }
