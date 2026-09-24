@@ -49,6 +49,8 @@ export const ingestVoiceNoteSchema = z.object({
     taskTitle: z.string().max(255).nullish(),
     dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dueDate must be YYYY-MM-DD'), z.literal('')]).nullish(),
     dueTime: z.union([z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'dueTime must be HH:mm'), z.literal('')]).nullish(),
+    // 'whatsapp': Work OS sends the WhatsApp reply itself (n8n answers WAAU immediately)
+    replyMode: z.enum(['whatsapp']).optional(),
   }),
 });
 
@@ -59,6 +61,7 @@ export const assignVoiceNoteSchema = z.object({
     senderPhone: z.string().trim().min(8).max(25),
     // The owner's answer: an employee name, or the number of an offered choice
     reply: z.string().trim().min(1).max(200),
+    replyMode: z.enum(['whatsapp']).optional(),
   }),
 });
 

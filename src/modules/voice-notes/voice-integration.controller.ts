@@ -9,6 +9,7 @@ import { logger } from '../../config/logger';
 import { normalizePhone, maskPhone } from '../../lib/phone';
 import { emitToTenant } from './voice-notes.controller';
 import { VoiceAssignmentService } from './voice-assignment.service';
+import { sendReply, type ReplyContext } from './voice-replies';
 import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
 
 /** Constant-time secret comparison (hashing first makes lengths equal). */
@@ -49,9 +50,26 @@ async function findTenantByVoicePhone(phone: string) {
   return tenant ?? null;
 }
 
-const notRegistered = (res: Response, phone: string) => {
+/**
+ * Sends the JSON response. With replyMode 'whatsapp' Work OS also sends the WhatsApp reply to the
+ * sender itself (n8n has already answered WAAU, which does not wait long enough for transcription).
+ */
+async function respond(
+  res: Response,
+  status: number,
+  payload: { code: string; workspace?: string } & Record<string, unknown>,
+  replyTo: string | null,
+) {
+  let replySent = false;
+  if (replyTo) {
+    replySent = await sendReply(replyTo, payload as unknown as ReplyContext, payload.workspace);
+  }
+  return res.status(status).json({ ...payload, ...(replyTo ? { replySent } : {}) });
+}
+
+const notRegistered = (res: Response, phone: string, replyTo: string | null) => {
   logger.info({ phone: maskPhone(phone) }, '[VoiceIntegration] Message from unregistered number');
-  return res.status(404).json({ error: 'This number is not registered with any workspace', code: 'number_not_registered' });
+  return respond(res, 404, { error: 'This number is not registered with any workspace', code: 'number_not_registered' }, replyTo);
 };
 
 export class VoiceIntegrationController {
@@ -68,6 +86,7 @@ export class VoiceIntegrationController {
    *   400 validation error / 401 bad secret / 503 not configured
    */
   static async ingest(req: Request, res: Response, next: NextFunction) {
+    let replyTo: string | null = null;
     try {
       const body = req.body as IngestVoiceNoteBody;
 
@@ -75,9 +94,10 @@ export class VoiceIntegrationController {
       if (!phone) {
         return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
       }
+      replyTo = body.replyMode === 'whatsapp' ? phone : null;
 
       const tenant = await findTenantByVoicePhone(phone);
-      if (!tenant) return notRegistered(res, phone);
+      if (!tenant) return notRegistered(res, phone, replyTo);
 
       const englishText = (body.englishText || '').trim();
       const flaggedUnclear = body.unclear === true || body.unclear === 'true';
@@ -104,7 +124,7 @@ export class VoiceIntegrationController {
         .returning();
 
       if (!created) {
-        return res.status(200).json({ success: true, code: 'duplicate', workspace: tenant.name });
+        return respond(res, 200, { success: true, code: 'duplicate', workspace: tenant.name }, replyTo);
       }
 
       // Signal only; clients refetch through the permission-checked API
@@ -113,18 +133,19 @@ export class VoiceIntegrationController {
 
       const base = { success: true, id: created.id, workspace: tenant.name };
       if (status === 'unclear') {
-        return res.status(201).json({ ...base, code: 'created', status });
+        return respond(res, 201, { ...base, code: 'created', status }, replyTo);
       }
 
       // The note is stored either way; if assignment fails it stays in the inbox as 'new'
       try {
         const outcome = await VoiceAssignmentService.assignNewNote(created);
-        return res.status(201).json({ ...base, status: outcome.code === 'task_created' ? 'converted' : 'awaiting_assignee', ...outcome });
+        return respond(res, 201, { ...base, status: outcome.code === 'task_created' ? 'converted' : 'awaiting_assignee', ...outcome }, replyTo);
       } catch (err) {
         logger.error({ err, voiceNoteId: created.id }, '[VoiceIntegration] Auto-assignment failed; note left in inbox');
-        return res.status(201).json({ ...base, code: 'created', status });
+        return respond(res, 201, { ...base, code: 'created', status }, replyTo);
       }
     } catch (err) {
+      if (replyTo) await sendReply(replyTo, { code: 'error' });
       return next(err);
     }
   }
@@ -135,19 +156,22 @@ export class VoiceIntegrationController {
    * 200 bodies carry the same assignment codes as ingest, plus 'no_pending_note'.
    */
   static async assign(req: Request, res: Response, next: NextFunction) {
+    let replyTo: string | null = null;
     try {
       const body = req.body as AssignVoiceNoteBody;
       const phone = normalizePhone(body.senderPhone);
       if (!phone) {
         return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
       }
+      replyTo = body.replyMode === 'whatsapp' ? phone : null;
 
       const tenant = await findTenantByVoicePhone(phone);
-      if (!tenant) return notRegistered(res, phone);
+      if (!tenant) return notRegistered(res, phone, replyTo);
 
       const outcome = await VoiceAssignmentService.assignPendingNote(tenant.id, body.reply);
-      return res.status(200).json({ success: true, workspace: tenant.name, ...outcome });
+      return respond(res, 200, { success: true, workspace: tenant.name, ...outcome }, replyTo);
     } catch (err) {
+      if (replyTo) await sendReply(replyTo, { code: 'error' });
       return next(err);
     }
   }

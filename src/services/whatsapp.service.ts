@@ -365,11 +365,34 @@ export class WhatsAppService {
     return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [{ type: 'body', parameters }]);
   }
 
+  /**
+   * Free-form text message. Meta only delivers these inside the 24-hour window after the recipient
+   * last messaged the business (e.g. a reply to someone who just sent the bot a voice note).
+   */
+  static async sendText(recipientPhone: string, text: string): Promise<{ success: boolean; error?: string }> {
+    return this.postMessage(recipientPhone, 'text', { type: 'text', text: { preview_url: false, body: text.slice(0, 4000) } });
+  }
+
   private static async sendTemplateMessage(
     recipientPhone: string,
     templateName: string,
     languageCode: string,
     components: unknown[],
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.postMessage(recipientPhone, templateName, {
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { policy: 'deterministic', code: languageCode },
+        components,
+      },
+    });
+  }
+
+  private static async postMessage(
+    recipientPhone: string,
+    label: string,
+    message: Record<string, unknown>,
   ): Promise<{ success: boolean; error?: string }> {
     const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
     if (!accessToken || !phoneNumberId) {
@@ -377,17 +400,7 @@ export class WhatsAppService {
     }
 
     const to = recipientPhone.replace(/[^0-9]/g, '');
-    const payload = {
-      messaging_product: 'whatsapp',
-      to,
-      recipient_type: 'individual',
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { policy: 'deterministic', code: languageCode },
-        components,
-      },
-    };
+    const payload = { messaging_product: 'whatsapp', to, recipient_type: 'individual', ...message };
 
     let lastError = 'Unknown error';
     for (const apiUrl of targetUrls) {
@@ -399,14 +412,14 @@ export class WhatsAppService {
         });
         const data: any = await res.json().catch(() => ({}));
         if (res.ok) {
-          logger.info({ template: templateName, to: to.slice(-4) }, '[WhatsAppService] Template sent');
+          logger.info({ message: label, to: to.slice(-4) }, '[WhatsAppService] Message sent');
           return { success: true };
         }
         lastError = data?.error?.message || `HTTP ${res.status}`;
-        logger.warn({ url: apiUrl, template: templateName, error: lastError }, '[WhatsAppService] Template dispatch failed on endpoint');
+        logger.warn({ url: apiUrl, message: label, error: lastError }, '[WhatsAppService] Message dispatch failed on endpoint');
       } catch (err: any) {
         lastError = err?.message || String(err);
-        logger.warn({ url: apiUrl, template: templateName, error: lastError }, '[WhatsAppService] Template request error');
+        logger.warn({ url: apiUrl, message: label, error: lastError }, '[WhatsAppService] Message request error');
       }
     }
     return { success: false, error: lastError };
