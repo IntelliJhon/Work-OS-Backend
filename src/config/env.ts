@@ -25,6 +25,13 @@ const envSchema = z.object({
   CRM_API_ACCESS_TOKEN: z.string().optional().default('nN4nTt9OSg5MkY1MksuWT3VmMfTkMIYhSghRJcAREFTSAoetUtHWYNrleHTUXzEmsREFTSAEqnPgpf6OQ75GYg4oM3rXFE0bORedVU5ERVJTQ09SRQY56ho939eYgJz1H88zR855ikVU5ERVJTQ09SRQ6sVeIIw'),
   CRM_PHONE_NUMBER_ID: z.string().optional().default('810611068796796'),
   CRM_API_URL: z.string().optional().default('https://crmapi.waau.in/api/meta'),
+
+  // Voice notes (n8n -> Work OS). No default on purpose: if unset, the integration endpoint is disabled.
+  VOICE_INTEGRATION_SECRET: z.string().min(32).optional(),
+  // Meta "Authentication" category template used to send the phone verification code
+  WHATSAPP_OTP_TEMPLATE: z.string().optional().default('workos_verify_code'),
+  WHATSAPP_OTP_TEMPLATE_LANG: z.string().optional().default('en'),
+  DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).optional().default('91'),
 });
 
 const _env = envSchema.safeParse(process.env);

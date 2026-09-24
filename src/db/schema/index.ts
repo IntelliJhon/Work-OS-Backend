@@ -24,3 +24,4 @@ export * from './work_reports';
 export * from './client_enquiries';
 export * from './subscription_expiry_alerts';
 
+export * from './voice_notes';

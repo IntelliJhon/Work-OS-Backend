@@ -334,5 +334,56 @@ export class WhatsAppService {
 
     return { success: false, error: lastError, apiResponse: lastData };
   }
+
+  /**
+   * Send a phone verification code using a Meta "Authentication" category template.
+   * Template (create in WAAU / Meta Business Manager): name = env.WHATSAPP_OTP_TEMPLATE,
+   * body "{{1}} is your verification code." with a "Copy code" button.
+   * Meta requires the code in both the body parameter and the button URL parameter.
+   */
+  static async sendVerificationCode(recipientPhone: string, code: string): Promise<{ success: boolean; error?: string }> {
+    const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
+    if (!accessToken || !phoneNumberId) {
+      return { success: false, error: 'WhatsApp API is not configured' };
+    }
+
+    const to = recipientPhone.replace(/[^0-9]/g, '');
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      recipient_type: 'individual',
+      type: 'template',
+      template: {
+        name: env.WHATSAPP_OTP_TEMPLATE,
+        language: { policy: 'deterministic', code: env.WHATSAPP_OTP_TEMPLATE_LANG },
+        components: [
+          { type: 'body', parameters: [{ type: 'text', text: code }] },
+          { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+        ],
+      },
+    };
+
+    let lastError = 'Unknown error';
+    for (const apiUrl of targetUrls) {
+      try {
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (res.ok) {
+          logger.info({ to: to.slice(-4) }, '[WhatsAppService] Verification code sent');
+          return { success: true };
+        }
+        lastError = data?.error?.message || `HTTP ${res.status}`;
+        logger.warn({ url: apiUrl, error: lastError }, '[WhatsAppService] Verification code dispatch failed on endpoint');
+      } catch (err: any) {
+        lastError = err?.message || String(err);
+        logger.warn({ url: apiUrl, error: lastError }, '[WhatsAppService] Verification code request error');
+      }
+    }
+    return { success: false, error: lastError };
+  }
 }
 
