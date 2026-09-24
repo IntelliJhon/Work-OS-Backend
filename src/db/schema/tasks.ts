@@ -20,6 +20,8 @@ export const tasks = pgTable('tasks', {
   timeEstimate: integer('time_estimate'),
   completedAt: timestamp('completed_at'),
   customFields: jsonb('custom_fields').default({}),
+  // Per-workspace work number shown as W-<n>. Assigned by the assign_task_number() DB trigger; never set by the app.
+  taskNumber: integer('task_number'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

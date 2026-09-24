@@ -8,6 +8,7 @@ import { eq, and, or, ilike, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { getIoInstance } from '../../socket/socketServer';
 import { getTenantRoom } from '../../socket/tenantRooms';
+import { normalizePhone } from '../../lib/phone';
 
 export class UsersController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -54,6 +55,8 @@ export class UsersController {
       const offset = (page - 1) * limit;
       const search = (req.query.search as string) || '';
       const roleId = req.query.roleId as string;
+      const perms = req.user!.permissions || {};
+      const canSeePhones = req.user!.role === 'Admin' || perms['admin'] === true || perms['workspace.members.read'] === true;
 
       const result = await withTenant(tenantId, async (tx) => {
         let conditions = eq(users.tenantId, tenantId);
@@ -83,6 +86,7 @@ export class UsersController {
             roleName: roles.name,
             twoFaEnabled: users.twoFaEnabled,
             createdAt: users.createdAt,
+            phone: users.phone,
           })
           .from(users)
           .innerJoin(roles, eq(users.roleId, roles.id))
@@ -98,7 +102,8 @@ export class UsersController {
         const total = parseInt(totalCountObj?.count as string || '0');
 
         return {
-          users: tenantUsers,
+          // Every member can list users (assignee pickers), but phone numbers are only for member managers
+          users: canSeePhones ? tenantUsers : tenantUsers.map(({ phone, ...rest }: any) => rest),
           pagination: {
             page,
             limit,
@@ -119,15 +124,25 @@ export class UsersController {
       const tenantId = req.user!.tenantId;
       const userId = req.params.id as string;
 
+      const changes = { ...req.body };
+      if ('phone' in changes) {
+        // Stored in the same normalized form used to send WhatsApp messages; empty clears it
+        const raw = changes.phone;
+        changes.phone = raw === null || String(raw).trim() === '' ? null : normalizePhone(raw);
+        if (raw && !changes.phone) {
+          return res.status(400).json({ error: 'Enter a valid WhatsApp number with country code' });
+        }
+      }
+
       const result = await withTenant(tenantId, async (tx) => {
         const [oldUser] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
-        
+
         if (!oldUser) {
           throw new Error('User not found');
         }
 
         const [updatedUser] = await tx.update(users)
-          .set({ ...req.body, updatedAt: new Date() })
+          .set({ ...changes, updatedAt: new Date() })
           .where(and(eq(users.id, userId), eq(users.tenantId, tenantId)))
           .returning();
 

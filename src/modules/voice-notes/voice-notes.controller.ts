@@ -2,13 +2,18 @@ import { Response, NextFunction } from 'express';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { db } from '../../db';
-import { voiceNotes, VoiceNoteStatus } from '../../db/schema/voice_notes';
+import { alias } from 'drizzle-orm/pg-core';
+import { voiceNotes, VoiceNoteStatus, VOICE_NOTE_STATUSES } from '../../db/schema/voice_notes';
 import { users } from '../../db/schema/users';
 import { tasks } from '../../db/schema/tasks';
+import { withTenant } from '../../middleware/tenant.middleware';
+import { formatWorkId } from '../tasks/tasks.service';
 import { VoiceSettingsService, VoiceSettingsError } from './voice-settings.service';
 import { getIoInstance } from '../../socket/socketServer';
 import { getTenantRoom } from '../../socket/tenantRooms';
 import { logger } from '../../config/logger';
+
+const assignee = alias(users, 'assignee');
 
 const handleError = (err: any, res: Response, next: NextFunction) => {
   if (err instanceof VoiceSettingsError) {
@@ -81,33 +86,45 @@ export class VoiceNotesController {
         ? and(eq(voiceNotes.tenantId, tenantId), eq(voiceNotes.status, status))
         : eq(voiceNotes.tenantId, tenantId);
 
-      const rows = await db
-        .select({
-          note: voiceNotes,
-          senderFirstName: users.firstName,
-          senderLastName: users.lastName,
-        })
-        .from(voiceNotes)
-        .leftJoin(users, eq(users.id, voiceNotes.senderUserId))
-        .where(where)
-        .orderBy(desc(voiceNotes.createdAt))
-        .limit(limit)
-        .offset(offset);
+      // users and tasks have row-level security, so joins must run with the tenant context set
+      const { rows, countRows } = await withTenant(tenantId, async (tx) => {
+        const rows = await tx
+          .select({
+            note: voiceNotes,
+            senderFirstName: users.firstName,
+            senderLastName: users.lastName,
+            taskNumber: tasks.taskNumber,
+            assigneeFirstName: assignee.firstName,
+            assigneeLastName: assignee.lastName,
+          })
+          .from(voiceNotes)
+          .leftJoin(users, eq(users.id, voiceNotes.senderUserId))
+          .leftJoin(tasks, eq(tasks.id, voiceNotes.taskId))
+          .leftJoin(assignee, eq(assignee.id, tasks.assigneeId))
+          .where(where)
+          .orderBy(desc(voiceNotes.createdAt))
+          .limit(limit)
+          .offset(offset);
 
-      const countRows = await db
-        .select({ status: voiceNotes.status, count: sql<number>`count(*)::int` })
-        .from(voiceNotes)
-        .where(eq(voiceNotes.tenantId, tenantId))
-        .groupBy(voiceNotes.status);
+        const countRows = await tx
+          .select({ status: voiceNotes.status, count: sql<number>`count(*)::int` })
+          .from(voiceNotes)
+          .where(eq(voiceNotes.tenantId, tenantId))
+          .groupBy(voiceNotes.status);
+        return { rows, countRows };
+      });
 
-      const counts = { new: 0, converted: 0, dismissed: 0, unclear: 0 } as Record<VoiceNoteStatus, number>;
-      for (const r of countRows) counts[r.status as VoiceNoteStatus] = r.count;
+      const counts = Object.fromEntries(VOICE_NOTE_STATUSES.map((s) => [s, 0])) as Record<VoiceNoteStatus, number>;
+      for (const r of countRows as { status: VoiceNoteStatus; count: number }[]) counts[r.status] = r.count;
 
+      const joinName = (first: string | null, last: string | null) => [first, last].filter(Boolean).join(' ') || null;
       return res.json({
         success: true,
-        data: rows.map((r) => ({
+        data: (rows as any[]).map((r) => ({
           ...r.note,
-          senderName: [r.senderFirstName, r.senderLastName].filter(Boolean).join(' ') || null,
+          senderName: joinName(r.senderFirstName, r.senderLastName),
+          workId: formatWorkId(r.taskNumber),
+          taskAssigneeName: joinName(r.assigneeFirstName, r.assigneeLastName),
         })),
         counts,
         pagination: { limit, offset },
@@ -138,12 +155,14 @@ export class VoiceNotesController {
 
       if (taskId !== undefined) {
         if (taskId !== null) {
-          // The task must belong to the same workspace
-          const [task] = await db
-            .select({ id: tasks.id })
-            .from(tasks)
-            .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)))
-            .limit(1);
+          // The task must belong to the same workspace (tasks has row-level security: needs the tenant context)
+          const [task] = await withTenant<{ id: string }[]>(tenantId, (tx) =>
+            tx
+              .select({ id: tasks.id })
+              .from(tasks)
+              .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)))
+              .limit(1),
+          );
           if (!task) return res.status(400).json({ error: 'Task not found in this workspace' });
         }
         patch.taskId = taskId;

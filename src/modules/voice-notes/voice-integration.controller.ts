@@ -8,7 +8,8 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { normalizePhone, maskPhone } from '../../lib/phone';
 import { emitToTenant } from './voice-notes.controller';
-import type { IngestVoiceNoteBody } from './voice-notes.schema';
+import { VoiceAssignmentService } from './voice-assignment.service';
+import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
 
 /** Constant-time secret comparison (hashing first makes lengths equal). */
 const secretMatches = (provided: unknown, expected: string) => {
@@ -31,12 +32,37 @@ export const requireIntegrationSecret = (req: Request, res: Response, next: Next
   return next();
 };
 
+/** The workspace whose verified voice number this is, or null. */
+async function findTenantByVoicePhone(phone: string) {
+  const [tenant] = await db
+    .select({ id: tenants.id, name: tenants.name, userId: tenants.voicePhoneUserId })
+    .from(tenants)
+    .where(
+      and(
+        eq(tenants.voicePhone, phone),
+        isNotNull(tenants.voicePhoneVerifiedAt),
+        eq(tenants.isActive, true),
+        isNull(tenants.deletedAt),
+      ),
+    )
+    .limit(1);
+  return tenant ?? null;
+}
+
+const notRegistered = (res: Response, phone: string) => {
+  logger.info({ phone: maskPhone(phone) }, '[VoiceIntegration] Message from unregistered number');
+  return res.status(404).json({ error: 'This number is not registered with any workspace', code: 'number_not_registered' });
+};
+
 export class VoiceIntegrationController {
   /**
    * POST /api/integrations/voice-notes  (called by n8n)
    *
-   * Responses n8n should branch on:
-   *   201 { code: 'created' }               -> reply "Received" to the sender
+   * Responses n8n should branch on (201 bodies also carry the assignment outcome fields):
+   *   201 { code: 'task_created', workId, assigneeName, ownerNotified, employeeNotified, employeeHasPhone }
+   *   201 { code: 'assignee_required' }                          -> ask the owner who should do it
+   *   201 { code: 'assignee_not_found' | 'assignee_ambiguous', heardName, choices[] } -> ask to pick
+   *   201 { code: 'created', status: 'unclear' }                 -> stored for review, no task
    *   200 { code: 'duplicate' }             -> already stored (retry/duplicate webhook), do nothing
    *   404 { code: 'number_not_registered' } -> reply "This number isn't registered with Work OS"
    *   400 validation error / 401 bad secret / 503 not configured
@@ -50,23 +76,8 @@ export class VoiceIntegrationController {
         return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
       }
 
-      const [tenant] = await db
-        .select({ id: tenants.id, name: tenants.name, userId: tenants.voicePhoneUserId })
-        .from(tenants)
-        .where(
-          and(
-            eq(tenants.voicePhone, phone),
-            isNotNull(tenants.voicePhoneVerifiedAt),
-            eq(tenants.isActive, true),
-            isNull(tenants.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      if (!tenant) {
-        logger.info({ phone: maskPhone(phone) }, '[VoiceIntegration] Voice note from unregistered number');
-        return res.status(404).json({ error: 'This number is not registered with any workspace', code: 'number_not_registered' });
-      }
+      const tenant = await findTenantByVoicePhone(phone);
+      if (!tenant) return notRegistered(res, phone);
 
       const englishText = (body.englishText || '').trim();
       const flaggedUnclear = body.unclear === true || body.unclear === 'true';
@@ -83,6 +94,10 @@ export class VoiceIntegrationController {
           originalTranscript: body.originalTranscript?.trim() || null,
           englishText,
           detectedLanguage: body.detectedLanguage?.trim() || null,
+          assigneeName: body.assigneeName?.trim() || null,
+          taskTitle: body.taskTitle?.trim() || null,
+          dueDate: body.dueDate || null,
+          dueTime: body.dueDate ? body.dueTime || null : null,
           status,
         })
         .onConflictDoNothing({ target: voiceNotes.externalMessageId })
@@ -96,13 +111,42 @@ export class VoiceIntegrationController {
       emitToTenant(tenant.id, 'voice_note_new', { id: created.id, status: created.status });
       logger.info({ tenantId: tenant.id, voiceNoteId: created.id, status }, '[VoiceIntegration] Voice note stored');
 
-      return res.status(201).json({
-        success: true,
-        code: 'created',
-        id: created.id,
-        status,
-        workspace: tenant.name,
-      });
+      const base = { success: true, id: created.id, workspace: tenant.name };
+      if (status === 'unclear') {
+        return res.status(201).json({ ...base, code: 'created', status });
+      }
+
+      // The note is stored either way; if assignment fails it stays in the inbox as 'new'
+      try {
+        const outcome = await VoiceAssignmentService.assignNewNote(created);
+        return res.status(201).json({ ...base, status: outcome.code === 'task_created' ? 'converted' : 'awaiting_assignee', ...outcome });
+      } catch (err) {
+        logger.error({ err, voiceNoteId: created.id }, '[VoiceIntegration] Auto-assignment failed; note left in inbox');
+        return res.status(201).json({ ...base, code: 'created', status });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  /**
+   * POST /api/integrations/voice-notes/assign  (called by n8n)
+   * The owner's answer to "who should do this?": a name, or the number of an offered choice.
+   * 200 bodies carry the same assignment codes as ingest, plus 'no_pending_note'.
+   */
+  static async assign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = req.body as AssignVoiceNoteBody;
+      const phone = normalizePhone(body.senderPhone);
+      if (!phone) {
+        return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
+      }
+
+      const tenant = await findTenantByVoicePhone(phone);
+      if (!tenant) return notRegistered(res, phone);
+
+      const outcome = await VoiceAssignmentService.assignPendingNote(tenant.id, body.reply);
+      return res.status(200).json({ success: true, workspace: tenant.name, ...outcome });
     } catch (err) {
       return next(err);
     }

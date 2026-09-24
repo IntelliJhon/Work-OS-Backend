@@ -11,50 +11,23 @@ import { TaskOwnershipService } from './task-ownership.service';
 import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 import { WebhookService } from '../../services/webhook.service';
+import { createTaskInTx } from './tasks.service';
 
 export class TasksController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const tenantId = req.user!.tenantId;
 
-      const result = await withTenant(tenantId, async (tx) => {
-        const completedAt = req.body.status === 'done' ? new Date() : null;
-        const [newTask] = await tx.insert(tasks).values({
+      const actorName = req.user ? `${(req.user as any).firstName || ''} ${(req.user as any).lastName || ''}`.trim() || (req.user as any).email || req.user.role : 'System';
+      const result = await withTenant(tenantId, (tx) =>
+        createTaskInTx(tx, {
           tenantId,
-          ...req.body,
-          completedAt,
-        }).returning();
-
-        // Audit Logging
-        await AuditService.logAction({
-          tenantId,
-          userId: req.user!.id,
-          action: 'INSERT',
-          tableName: 'tasks',
-          recordId: newTask.id,
-          newValue: newTask,
+          actorUserId: req.user!.id,
+          actorName,
+          values: req.body,
           ipAddress: req.ip,
-        }, tx);
-
-        // Trigger notifications
-        await NotificationEvents.notifyTaskEvent(tenantId, req.user!.id, null, newTask);
-
-        // Broadcast real-time Socket.IO event
-        try {
-          const io = getIoInstance();
-          const actorName = req.user ? `${(req.user as any).firstName || ''} ${(req.user as any).lastName || ''}`.trim() || (req.user as any).email || req.user.role : 'System';
-          const room = newTask.projectId ? `project:${newTask.projectId}` : `tenant:${tenantId}`;
-          io.to(room).emit('kanban_task_created_received', {
-            sprintId: newTask.sprintId,
-            task: newTask,
-            actorName,
-          });
-        } catch (socketErr: any) {
-          logger.warn({ msg: 'Socket creation broadcast skipped', err: socketErr.message });
-        }
-
-        return newTask;
-      });
+        }),
+      );
 
       // Dispatch Open Point webhooks asynchronously after DB transaction completes (non-blocking)
       WebhookService.processTaskSubtaskWebhooks({

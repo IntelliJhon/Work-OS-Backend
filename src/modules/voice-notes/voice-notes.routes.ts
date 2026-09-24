@@ -10,6 +10,7 @@ import {
   listVoiceNotesSchema,
   updateVoiceNoteSchema,
   ingestVoiceNoteSchema,
+  assignVoiceNoteSchema,
 } from './voice-notes.schema';
 
 // Permission keys. Admin role bypasses all checks in requirePermissions.
@@ -36,3 +37,4 @@ voiceNotesRouter.patch('/:id', requirePermissions([VOICE_PERMISSIONS.NOTES_UPDAT
 // ---- /api/integrations (machine-to-machine, secret header) ----
 export const integrationsRouter = Router();
 integrationsRouter.post('/voice-notes', requireIntegrationSecret, validateRequest(ingestVoiceNoteSchema), VoiceIntegrationController.ingest);
+integrationsRouter.post('/voice-notes/assign', requireIntegrationSecret, validateRequest(assignVoiceNoteSchema), VoiceIntegrationController.assign);

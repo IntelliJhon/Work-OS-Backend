@@ -10,6 +10,9 @@ export const tenants = pgTable('tenants', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 
+  // Next per-workspace work number (W-1, W-2, ...). Maintained by the assign_task_number() trigger (migration 0029).
+  nextTaskNumber: integer('next_task_number').default(1).notNull(),
+
   // Voice notes: the single verified WhatsApp number allowed to send voice notes for this workspace.
   // Only verified numbers occupy the unique slot, so an unverified entry can't block another workspace.
   voicePhone: varchar('voice_phone', { length: 20 }).unique(),

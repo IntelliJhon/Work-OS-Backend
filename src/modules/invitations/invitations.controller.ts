@@ -8,6 +8,7 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { AuditService } from '../../services/audit.service';
 import { AuthService } from '../auth/auth.service';
+import { normalizePhone } from '../../lib/phone';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
@@ -17,6 +18,11 @@ export class InvitationsController {
     try {
       const tenantId = req.user!.tenantId;
       const { email, roleId } = req.body;
+      const rawPhone = req.body.phone;
+      const phone = rawPhone && String(rawPhone).trim() ? normalizePhone(rawPhone) : null;
+      if (rawPhone && String(rawPhone).trim() && !phone) {
+        return res.status(400).json({ error: 'Enter a valid WhatsApp number with country code' });
+      }
 
       const result = await withTenant(tenantId, async (tx) => {
         // 1. Check if user is already a member
@@ -60,6 +66,7 @@ export class InvitationsController {
             roleId,
             token,
             expiresAt,
+            phone,
           })
           .returning();
 
@@ -309,6 +316,7 @@ export class InvitationsController {
             firstName,
             lastName,
             roleId: invite.roleId,
+            phone: invite.phone,
           })
           .returning();
 

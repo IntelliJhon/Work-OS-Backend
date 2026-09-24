@@ -4,6 +4,8 @@ export const createInviteSchema = z.object({
   body: z.object({
     email: z.string().email('Invalid email address'),
     roleId: z.string().uuid('Invalid Role ID'),
+    // Optional WhatsApp number for work notifications, copied to the member on accept
+    phone: z.string().max(25).nullable().optional(),
   }),
 });
 

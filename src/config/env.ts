@@ -32,6 +32,14 @@ const envSchema = z.object({
   WHATSAPP_OTP_TEMPLATE: z.string().optional().default('workos_verify_code'),
   WHATSAPP_OTP_TEMPLATE_LANG: z.string().optional().default('en'),
   DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).optional().default('91'),
+  // Utility templates sent after a voice note becomes assigned work (see voice-assignment.service.ts for variables)
+  WHATSAPP_WORK_OWNER_TEMPLATE: z.string().optional().default('work_os_work_assigned'),
+  WHATSAPP_WORK_EMPLOYEE_TEMPLATE: z.string().optional().default('work_os_new_work'),
+  WHATSAPP_WORK_TEMPLATE_LANG: z.string().optional().default('en'),
+  // How long a voice note waits for the owner to name the employee
+  VOICE_ASSIGNEE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).optional().default(30),
+  // Used to resolve spoken dates/times ("tomorrow at 5") and to format due dates in messages
+  WORK_TIMEZONE: z.string().optional().default('Asia/Kolkata'),
 });
 
 const _env = envSchema.safeParse(process.env);

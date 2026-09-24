@@ -12,4 +12,6 @@ export const invitations = pgTable('invitations', {
   acceptedAt: timestamp('accepted_at'),
   revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Optional WhatsApp number set by the inviting admin; copied to the user on accept
+  phone: varchar('phone', { length: 20 }),
 });

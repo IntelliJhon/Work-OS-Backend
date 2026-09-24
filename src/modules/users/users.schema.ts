@@ -20,5 +20,7 @@ export const updateUserSchema = z.object({
     lastName: z.string().min(1).max(100).optional(),
     roleId: z.string().uuid().optional(),
     twoFaEnabled: z.boolean().optional(),
+    // WhatsApp number for work notifications; '' or null clears it
+    phone: z.string().max(25).nullable().optional(),
   }),
 });

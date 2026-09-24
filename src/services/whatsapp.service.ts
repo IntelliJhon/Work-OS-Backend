@@ -342,6 +342,35 @@ export class WhatsAppService {
    * Meta requires the code in both the body parameter and the button URL parameter.
    */
   static async sendVerificationCode(recipientPhone: string, code: string): Promise<{ success: boolean; error?: string }> {
+    return this.sendTemplateMessage(recipientPhone, env.WHATSAPP_OTP_TEMPLATE, env.WHATSAPP_OTP_TEMPLATE_LANG, [
+      { type: 'body', parameters: [{ type: 'text', text: code }] },
+      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+    ]);
+  }
+
+  /**
+   * Send a template with body variables {{1}}..{{n}} in order. Meta rejects variables containing
+   * newlines, tabs or more than 4 consecutive spaces, so values are flattened and length-capped.
+   */
+  static async sendBodyTemplate(
+    recipientPhone: string,
+    templateName: string,
+    languageCode: string,
+    bodyParams: string[],
+  ): Promise<{ success: boolean; error?: string }> {
+    const parameters = bodyParams.map((value) => ({
+      type: 'text',
+      text: String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 300) || '-',
+    }));
+    return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [{ type: 'body', parameters }]);
+  }
+
+  private static async sendTemplateMessage(
+    recipientPhone: string,
+    templateName: string,
+    languageCode: string,
+    components: unknown[],
+  ): Promise<{ success: boolean; error?: string }> {
     const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
     if (!accessToken || !phoneNumberId) {
       return { success: false, error: 'WhatsApp API is not configured' };
@@ -354,12 +383,9 @@ export class WhatsAppService {
       recipient_type: 'individual',
       type: 'template',
       template: {
-        name: env.WHATSAPP_OTP_TEMPLATE,
-        language: { policy: 'deterministic', code: env.WHATSAPP_OTP_TEMPLATE_LANG },
-        components: [
-          { type: 'body', parameters: [{ type: 'text', text: code }] },
-          { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
-        ],
+        name: templateName,
+        language: { policy: 'deterministic', code: languageCode },
+        components,
       },
     };
 
@@ -373,14 +399,14 @@ export class WhatsAppService {
         });
         const data: any = await res.json().catch(() => ({}));
         if (res.ok) {
-          logger.info({ to: to.slice(-4) }, '[WhatsAppService] Verification code sent');
+          logger.info({ template: templateName, to: to.slice(-4) }, '[WhatsAppService] Template sent');
           return { success: true };
         }
         lastError = data?.error?.message || `HTTP ${res.status}`;
-        logger.warn({ url: apiUrl, error: lastError }, '[WhatsAppService] Verification code dispatch failed on endpoint');
+        logger.warn({ url: apiUrl, template: templateName, error: lastError }, '[WhatsAppService] Template dispatch failed on endpoint');
       } catch (err: any) {
         lastError = err?.message || String(err);
-        logger.warn({ url: apiUrl, error: lastError }, '[WhatsAppService] Verification code request error');
+        logger.warn({ url: apiUrl, template: templateName, error: lastError }, '[WhatsAppService] Template request error');
       }
     }
     return { success: false, error: lastError };
