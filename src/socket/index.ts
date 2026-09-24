@@ -4,6 +4,23 @@ import { setIoInstance } from './socketServer';
 import { socketAuthMiddleware } from './socketAuth';
 import { logger } from '../config/logger';
 import { getTenantRoom, getUserRoom } from './tenantRooms';
+import { and, eq } from 'drizzle-orm';
+import { projects } from '../db/schema/projects';
+import { withTenant } from '../middleware/tenant.middleware';
+
+const PROJECT_ROOM_REGEX = /^project:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** True only if the project exists and belongs to the given tenant. */
+const projectBelongsToTenant = async (projectId: string, tenantId: string): Promise<boolean> => {
+  const [project] = await withTenant(tenantId, async (tx) =>
+    tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.tenantId, tenantId)))
+      .limit(1),
+  );
+  return !!project;
+};
 
 export const initSocket = (httpServer: HttpServer) => {
   const io = new SocketIOServer(httpServer, {
@@ -86,9 +103,46 @@ export const initSocket = (httpServer: HttpServer) => {
       });
     });
 
+    /**
+     * Room for client-initiated relays. A project room is used only if this socket has joined it
+     * (join_room verifies the project against the DB); anything else, e.g. 'global' tasks, goes to
+     * the sender's own tenant room. This keeps a client from relaying into another tenant's rooms.
+     */
+    const relayRoom = (projectId: unknown): string => {
+      const room = `project:${projectId}`;
+      return projectId && socket.rooms.has(room) ? room : tenantRoom;
+    };
+
+    const relayRoomFromRoomId = (roomId: unknown): string =>
+      typeof roomId === 'string' && roomId.startsWith('project:')
+        ? relayRoom(roomId.slice('project:'.length))
+        : tenantRoom;
+
     // Custom Room Orchestration
-    socket.on('join_room', ({ roomId }) => {
-      socket.join(roomId);
+    // Allowlist: clients may only join `project:<uuid>` rooms of their own tenant.
+    // Tenant and user rooms are joined server-side above and are never client-joinable.
+    socket.on('join_room', async (payload) => {
+      const roomId = typeof payload?.roomId === 'string' ? payload.roomId : '';
+      const match = PROJECT_ROOM_REGEX.exec(roomId);
+      if (!match) {
+        logger.warn({ userId: user.id, roomId }, 'Socket join_room rejected: room not allowed');
+        socket.emit('room_join_error', { roomId, code: 'room_not_allowed', error: 'Room not allowed' });
+        return;
+      }
+
+      try {
+        if (!(await projectBelongsToTenant(match[1], user.tenantId))) {
+          logger.warn({ userId: user.id, tenantId: user.tenantId, roomId }, 'Socket join_room rejected: project not in tenant');
+          socket.emit('room_join_error', { roomId, code: 'project_not_found', error: 'Project not found' });
+          return;
+        }
+      } catch (err) {
+        logger.error({ err, userId: user.id, roomId }, 'Socket join_room project lookup failed');
+        socket.emit('room_join_error', { roomId, code: 'join_failed', error: 'Could not join room' });
+        return;
+      }
+
+      await socket.join(roomId);
       // Notify other active members in the room
       socket.to(roomId).emit('user_joined_room', {
         user: {
@@ -103,7 +157,10 @@ export const initSocket = (httpServer: HttpServer) => {
       logger.info({ userId: user.id, roomId }, 'Socket joined room');
     });
 
-    socket.on('leave_room', ({ roomId }) => {
+    socket.on('leave_room', (payload) => {
+      const roomId = typeof payload?.roomId === 'string' ? payload.roomId : '';
+      // Only joined project rooms can be left; tenant and user rooms are server-managed
+      if (!PROJECT_ROOM_REGEX.test(roomId) || !socket.rooms.has(roomId)) return;
       socket.leave(roomId);
       socket.to(roomId).emit('user_left_room', {
         userId: user.id,
@@ -128,7 +185,7 @@ export const initSocket = (httpServer: HttpServer) => {
 
     // Typing Indicators
     socket.on('typing_start', ({ roomId, entityId }) => {
-      socket.to(roomId).emit('user_typing_start', {
+      socket.to(relayRoomFromRoomId(roomId)).emit('user_typing_start', {
         userId: user.id,
         userName: `${user.firstName} ${user.lastName}`,
         entityId
@@ -136,7 +193,7 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     socket.on('typing_end', ({ roomId, entityId }) => {
-      socket.to(roomId).emit('user_typing_end', {
+      socket.to(relayRoomFromRoomId(roomId)).emit('user_typing_end', {
         userId: user.id,
         entityId
       });
@@ -144,7 +201,7 @@ export const initSocket = (httpServer: HttpServer) => {
 
     // Threaded Comments Broadcast
     socket.on('broadcast_comment', async ({ projectId, entityId, comment }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('comment_received', { entityId, comment });
 
       // Trigger comment mentions notification in user tenant context
@@ -196,38 +253,38 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     socket.on('broadcast_comment_delete', ({ projectId, entityId, commentId }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('comment_deleted', { entityId, commentId });
     });
 
     socket.on('broadcast_comment_reaction', ({ projectId, entityId, commentId, reaction, userId }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('comment_reaction_received', { entityId, commentId, reaction, userId });
     });
 
     // Kanban movements broadcast
     socket.on('kanban_task_moved', ({ projectId, taskId, fromStatus, toStatus, actorName }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('kanban_task_moved_received', { taskId, fromStatus, toStatus, actorName });
     });
 
     socket.on('kanban_task_created', ({ projectId, sprintId, task, actorName }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('kanban_task_created_received', { sprintId, task, actorName });
     });
 
     socket.on('kanban_task_deleted', ({ projectId, sprintId, taskId }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('kanban_task_deleted_received', { sprintId, taskId });
     });
 
     socket.on('kanban_task_updated', ({ projectId, sprintId, taskId, updates }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('kanban_task_updated_received', { sprintId, taskId, updates });
     });
 
     socket.on('request_kanban_sync', ({ projectId }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('request_kanban_sync_received', { requesterId: socket.id });
     });
 
@@ -236,7 +293,7 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     socket.on('request_comments_sync', ({ projectId }) => {
-      const room = projectId ? `project:${projectId}` : `tenant:${user.tenantId}`;
+      const room = relayRoom(projectId);
       socket.to(room).emit('request_comments_sync_received', { requesterId: socket.id });
     });
 

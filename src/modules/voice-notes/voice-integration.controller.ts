@@ -92,7 +92,8 @@ export class VoiceIntegrationController {
         return res.status(200).json({ success: true, code: 'duplicate', workspace: tenant.name });
       }
 
-      emitToTenant(tenant.id, 'voice_note_new', created);
+      // Signal only; clients refetch through the permission-checked API
+      emitToTenant(tenant.id, 'voice_note_new', { id: created.id, status: created.status });
       logger.info({ tenantId: tenant.id, voiceNoteId: created.id, status }, '[VoiceIntegration] Voice note stored');
 
       return res.status(201).json({

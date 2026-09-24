@@ -17,7 +17,11 @@ const handleError = (err: any, res: Response, next: NextFunction) => {
   return next(err);
 };
 
-export const emitToTenant = (tenantId: string, event: string, payload: unknown) => {
+/**
+ * Every tenant member receives this event regardless of permissions, so payloads must stay minimal
+ * (ids/status only) and never include phone numbers, transcripts or audio URLs.
+ */
+export const emitToTenant = (tenantId: string, event: string, payload: { id: string; status: string }) => {
   try {
     getIoInstance().to(getTenantRoom(tenantId)).emit(event, payload);
   } catch (err: any) {
@@ -156,7 +160,7 @@ export class VoiceNotesController {
         .where(and(eq(voiceNotes.id, id), eq(voiceNotes.tenantId, tenantId)))
         .returning();
 
-      emitToTenant(tenantId, 'voice_note_updated', updated);
+      emitToTenant(tenantId, 'voice_note_updated', { id: updated.id, status: updated.status });
       return res.json({ success: true, data: updated });
     } catch (err) {
       return next(err);
