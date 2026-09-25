@@ -14,6 +14,8 @@ export interface WhatsAppComplaintAlertPayload {
 }
 
 export class WhatsAppService {
+  private static readonly REQUEST_TIMEOUT_MS = 10_000;
+
   private static getApiConfig() {
     const crmApiUrl = (process.env.CRM_API_URL || env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '');
     const apiVersion = process.env.CRM_API_VERSION || 'v19.0';
@@ -404,22 +406,26 @@ export class WhatsAppService {
 
     let lastError = 'Unknown error';
     for (const apiUrl of targetUrls) {
+      const started = Date.now();
       try {
         const res = await fetch(apiUrl, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          // A hanging endpoint must not stall the next fallback (or the caller) indefinitely
+          signal: AbortSignal.timeout(WhatsAppService.REQUEST_TIMEOUT_MS),
         });
         const data: any = await res.json().catch(() => ({}));
+        const ms = Date.now() - started;
         if (res.ok) {
-          logger.info({ message: label, to: to.slice(-4) }, '[WhatsAppService] Message sent');
+          logger.info({ message: label, to: to.slice(-4), url: apiUrl, ms }, '[WhatsAppService] Message sent');
           return { success: true };
         }
         lastError = data?.error?.message || `HTTP ${res.status}`;
-        logger.warn({ url: apiUrl, message: label, error: lastError }, '[WhatsAppService] Message dispatch failed on endpoint');
+        logger.warn({ url: apiUrl, message: label, error: lastError, ms }, '[WhatsAppService] Message dispatch failed on endpoint');
       } catch (err: any) {
-        lastError = err?.message || String(err);
-        logger.warn({ url: apiUrl, message: label, error: lastError }, '[WhatsAppService] Message request error');
+        lastError = err?.name === 'TimeoutError' ? `Timed out after ${WhatsAppService.REQUEST_TIMEOUT_MS}ms` : err?.message || String(err);
+        logger.warn({ url: apiUrl, message: label, error: lastError, ms: Date.now() - started }, '[WhatsAppService] Message request error');
       }
     }
     return { success: false, error: lastError };
