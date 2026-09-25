@@ -33,6 +33,10 @@ export const updateVoiceNoteSchema = z.object({
   }),
 });
 
+export const deleteVoiceNoteSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+});
+
 // ---- Integration (n8n) ----
 export const ingestVoiceNoteSchema = z.object({
   body: z.object({

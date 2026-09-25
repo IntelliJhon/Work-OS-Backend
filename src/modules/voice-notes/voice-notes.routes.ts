@@ -9,6 +9,7 @@ import {
   verifyCodeSchema,
   listVoiceNotesSchema,
   updateVoiceNoteSchema,
+  deleteVoiceNoteSchema,
   ingestVoiceNoteSchema,
   assignVoiceNoteSchema,
 } from './voice-notes.schema';
@@ -33,6 +34,7 @@ voiceNotesRouter.delete('/settings', requirePermissions([VOICE_PERMISSIONS.SETTI
 // Inbox
 voiceNotesRouter.get('/', requirePermissions([VOICE_PERMISSIONS.NOTES_READ]) as any, validateRequest(listVoiceNotesSchema), VoiceNotesController.list as any);
 voiceNotesRouter.patch('/:id', requirePermissions([VOICE_PERMISSIONS.NOTES_UPDATE]) as any, validateRequest(updateVoiceNoteSchema), VoiceNotesController.update as any);
+voiceNotesRouter.delete('/:id', requirePermissions([VOICE_PERMISSIONS.NOTES_UPDATE]) as any, validateRequest(deleteVoiceNoteSchema), VoiceNotesController.remove as any);
 
 // ---- /api/integrations (machine-to-machine, secret header) ----
 export const integrationsRouter = Router();

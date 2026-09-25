@@ -185,4 +185,34 @@ export class VoiceNotesController {
       return next(err);
     }
   }
+
+  /** Permanently deletes a voice note. Only dismissed notes can be deleted (dismiss first). */
+  static async remove(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const id = req.params.id as string;
+
+      const [deleted] = await db
+        .delete(voiceNotes)
+        .where(and(eq(voiceNotes.id, id), eq(voiceNotes.tenantId, tenantId), eq(voiceNotes.status, 'dismissed')))
+        .returning({ id: voiceNotes.id });
+
+      if (!deleted) {
+        const [existing] = await db
+          .select({ id: voiceNotes.id })
+          .from(voiceNotes)
+          .where(and(eq(voiceNotes.id, id), eq(voiceNotes.tenantId, tenantId)))
+          .limit(1);
+        return existing
+          ? res.status(409).json({ error: 'Only dismissed voice notes can be deleted', code: 'not_dismissed' })
+          : res.status(404).json({ error: 'Voice note not found' });
+      }
+
+      logger.info({ tenantId, voiceNoteId: id, userId: req.user!.id }, '[VoiceNotes] Voice note deleted');
+      emitToTenant(tenantId, 'voice_note_updated', { id, status: 'deleted' });
+      return res.json({ success: true });
+    } catch (err) {
+      return next(err);
+    }
+  }
 }
