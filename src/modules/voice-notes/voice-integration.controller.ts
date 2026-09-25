@@ -8,7 +8,7 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { normalizePhone, maskPhone } from '../../lib/phone';
 import { emitToTenant } from './voice-notes.controller';
-import { VoiceAssignmentService } from './voice-assignment.service';
+import { VoiceAssignmentService, listMemberNames } from './voice-assignment.service';
 import { sendReply, type ReplyContext } from './voice-replies';
 import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
 
@@ -118,6 +118,9 @@ export class VoiceIntegrationController {
           taskTitle: body.taskTitle?.trim() || null,
           dueDate: body.dueDate || null,
           dueTime: body.dueDate ? body.dueTime || null : null,
+          reviewerName: body.reviewerName?.trim() || null,
+          informedNames: (body.informedNames || []).map((n) => n.trim()).filter(Boolean).slice(0, 10),
+          noteKind: body.noteKind || null,
           status,
         })
         .onConflictDoNothing({ target: voiceNotes.externalMessageId })
@@ -138,8 +141,8 @@ export class VoiceIntegrationController {
 
       // The note is stored either way; if assignment fails it stays in the inbox as 'new'
       try {
-        const outcome = await VoiceAssignmentService.assignNewNote(created);
-        return respond(res, 201, { ...base, status: outcome.code === 'task_created' ? 'converted' : 'awaiting_assignee', ...outcome }, replyTo);
+        const outcome = await VoiceAssignmentService.proposeNewNote(created);
+        return respond(res, 201, { ...base, ...outcome }, replyTo);
       } catch (err) {
         logger.error({ err, voiceNoteId: created.id }, '[VoiceIntegration] Auto-assignment failed; note left in inbox');
         return respond(res, 201, { ...base, code: 'created', status }, replyTo);
@@ -168,10 +171,30 @@ export class VoiceIntegrationController {
       const tenant = await findTenantByVoicePhone(phone);
       if (!tenant) return notRegistered(res, phone, replyTo);
 
-      const outcome = await VoiceAssignmentService.assignPendingNote(tenant.id, body.reply);
+      const outcome = await VoiceAssignmentService.handleReply(tenant.id, body.reply, body.replyType, body.quiet === true);
       return respond(res, 200, { success: true, workspace: tenant.name, ...outcome }, replyTo);
     } catch (err) {
       if (replyTo) await sendReply(replyTo, { code: 'error' });
+      return next(err);
+    }
+  }
+
+  /**
+   * POST /api/integrations/voice-notes/context  (called by n8n before Gemini)
+   * The sender's workspace and its member names, so Gemini writes spoken names the way they are
+   * stored in Work OS. 404 number_not_registered lets n8n stop early (no Gemini call).
+   */
+  static async context(req: Request, res: Response, next: NextFunction) {
+    try {
+      const phone = normalizePhone(req.body?.senderPhone);
+      if (!phone) {
+        return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
+      }
+      const tenant = await findTenantByVoicePhone(phone);
+      if (!tenant) return notRegistered(res, phone, req.body?.replyMode === 'whatsapp' ? phone : null);
+
+      return res.json({ success: true, code: 'registered', workspace: tenant.name, members: await listMemberNames(tenant.id) });
+    } catch (err) {
       return next(err);
     }
   }

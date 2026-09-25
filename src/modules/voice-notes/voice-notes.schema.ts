@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { VOICE_NOTE_STATUSES } from '../../db/schema/voice_notes';
+import { VOICE_NOTE_STATUSES, VOICE_NOTE_KINDS } from '../../db/schema/voice_notes';
 
 // ---- Settings (Admin) ----
 export const sendCodeSchema = z.object({
@@ -53,6 +53,10 @@ export const ingestVoiceNoteSchema = z.object({
     taskTitle: z.string().max(255).nullish(),
     dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dueDate must be YYYY-MM-DD'), z.literal('')]).nullish(),
     dueTime: z.union([z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'dueTime must be HH:mm'), z.literal('')]).nullish(),
+    // Other people in the note and whether it is new work or an update (confirmation message and task)
+    reviewerName: z.string().max(150).nullish(),
+    informedNames: z.array(z.string().max(150)).max(20).nullish(),
+    noteKind: z.enum(VOICE_NOTE_KINDS).nullish(),
     // 'whatsapp': Work OS sends the WhatsApp reply itself (n8n answers WAAU immediately)
     replyMode: z.enum(['whatsapp']).optional(),
   }),
@@ -66,7 +70,19 @@ export const assignVoiceNoteSchema = z.object({
     // The owner's answer: an employee name, or the number of an offered choice
     reply: z.string().trim().min(1).max(200),
     replyMode: z.enum(['whatsapp']).optional(),
+    // 'choice': a typed number; 'name': only a person's name; 'other': anything else (yes/no/cancel…)
+    replyType: z.enum(['choice', 'name', 'other']).optional(),
+    // true for chit-chat: stay silent when nothing is waiting for the sender
+    quiet: z.boolean().optional(),
   }),
 });
 
 export type AssignVoiceNoteBody = z.infer<typeof assignVoiceNoteSchema>['body'];
+
+export const voiceContextSchema = z.object({
+  body: z.object({
+    senderPhone: z.string().trim().min(8).max(25),
+    // 'whatsapp': reply "not registered" to unknown senders (they are not sent to Gemini)
+    replyMode: z.enum(['whatsapp']).optional(),
+  }),
+});

@@ -4,7 +4,9 @@ import { users } from './users';
 import { tasks } from './tasks';
 
 // 'awaiting_assignee': the note has work in it but no (matching) employee yet; the owner is asked on WhatsApp.
-export const VOICE_NOTE_STATUSES = ['new', 'converted', 'dismissed', 'unclear', 'awaiting_assignee'] as const;
+// 'awaiting_confirmation': the owner was shown what was understood and must reply 1 (create) / 2 (change) / 3 (cancel).
+export const VOICE_NOTE_STATUSES = ['new', 'converted', 'dismissed', 'unclear', 'awaiting_assignee', 'awaiting_confirmation'] as const;
+export const VOICE_NOTE_KINDS = ['instruction', 'report'] as const;
 export type VoiceNoteStatus = (typeof VOICE_NOTE_STATUSES)[number];
 
 export const voiceNotes = pgTable('voice_notes', {
@@ -25,7 +27,13 @@ export const voiceNotes = pgTable('voice_notes', {
   dueTime: varchar('due_time', { length: 5 }), // HH:mm (24h)
   // Numbered choices last offered to the owner, so a reply of "2" can pick one
   assigneeCandidates: jsonb('assignee_candidates').$type<{ id: string; name: string }[]>(),
-  status: varchar('status', { length: 20 }).$type<VoiceNoteStatus>().default('new').notNull(),
+  // Member the task goes to once the owner confirms
+  proposedAssigneeId: uuid('proposed_assignee_id').references(() => users.id, { onDelete: 'set null' }),
+  // Other people in the note (as understood): who checks the work, who should be informed
+  reviewerName: varchar('reviewer_name', { length: 150 }),
+  informedNames: jsonb('informed_names').$type<string[]>(),
+  noteKind: varchar('note_kind', { length: 20 }).$type<(typeof VOICE_NOTE_KINDS)[number]>(),
+  status: varchar('status', { length: 30 }).$type<VoiceNoteStatus>().default('new').notNull(),
   taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
   reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
   reviewedAt: timestamp('reviewed_at'),

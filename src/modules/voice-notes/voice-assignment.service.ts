@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import { db } from '../../db';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { tenants } from '../../db/schema/tenants';
@@ -11,6 +11,16 @@ import { WhatsAppService } from '../../services/whatsapp.service';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { emitToTenant } from './voice-notes.controller';
+
+/**
+ * Voice/typed work is always confirmed by the sender before a task is created:
+ *
+ *   new note ──► doer matched ──► awaiting_confirmation ──"1"──► task created (templates sent)
+ *        │                              │  "2" / a name ──► awaiting_assignee / re-confirm
+ *        │                              └─ "3" ──► dismissed
+ *        └─► doer missing/unknown ──► awaiting_assignee ──name──► awaiting_confirmation
+ *                                              └─ choice number ──► task created
+ */
 
 type VoiceNote = typeof voiceNotes.$inferSelect;
 type Member = { id: string; firstName: string; lastName: string; phone: string | null };
@@ -26,11 +36,28 @@ export type AssignmentOutcome =
       employeeNotified: boolean;
       employeeHasPhone: boolean;
     }
-  | { code: 'assignee_required' }
+  | {
+      code: 'confirmation_required';
+      title: string;
+      due: string | null;
+      doerName: string;
+      reviewerName: string | null;
+      informedNames: string[];
+      isReport: boolean;
+    }
+  | { code: 'assignee_required'; choices: string[] }
   | { code: 'assignee_not_found'; heardName: string; choices: string[] }
   | { code: 'assignee_ambiguous'; heardName: string; choices: string[] }
+  | { code: 'reply_not_understood' }
+  | { code: 'cancelled' }
   | { code: 'no_pending_note' }
+  | { code: 'ignored' }
   | { code: 'already_assigned' };
+
+/** How n8n classified the owner's reply */
+export type ReplyType = 'choice' | 'name' | 'other';
+
+const PENDING_STATUSES = ['awaiting_confirmation', 'awaiting_assignee'] as const;
 
 const fullName = (m: { firstName: string; lastName: string }) => `${m.firstName} ${m.lastName}`.trim();
 
@@ -42,6 +69,10 @@ const loadMembers = (tenantId: string): Promise<Member[]> =>
       .where(and(eq(users.tenantId, tenantId), isNull(users.deletedAt))),
   );
 
+/** Member names for the AI prompt, so spoken names are written the way they appear in Work OS */
+export const listMemberNames = async (tenantId: string): Promise<string[]> =>
+  (await loadMembers(tenantId)).map(fullName).filter(Boolean);
+
 /** First sentence of the English text, capped for a task title. */
 const deriveTitle = (note: VoiceNote): string => {
   const source = (note.taskTitle || note.englishText || 'Voice note work').trim();
@@ -50,8 +81,8 @@ const deriveTitle = (note: VoiceNote): string => {
 };
 
 /** "Fri, 25 Sep, 5:00 pm" from the stored local date/time (already in WORK_TIMEZONE). */
-const formatDue = (dueDate: string | null, dueTime: string | null): string => {
-  if (!dueDate) return 'Not set';
+const formatDue = (dueDate: string | null, dueTime: string | null): string | null => {
+  if (!dueDate) return null;
   const [y, mo, d] = dueDate.split('-').map(Number);
   const [h, mi] = (dueTime || '00:00').split(':').map(Number);
   const when = new Date(Date.UTC(y, mo - 1, d, h, mi));
@@ -60,34 +91,101 @@ const formatDue = (dueDate: string | null, dueTime: string | null): string => {
   return `${date}, ${when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 };
 
-async function markAwaitingAssignee(note: VoiceNote, heardName: string | null, candidates: Member[]) {
+/** A spoken name shown as the matching member's full name when there is a clear match. */
+const displayName = (heard: string, members: Member[]): string => {
+  const result = matchMemberName(heard, members);
+  return result.kind === 'match' ? fullName(result.member) : heard;
+};
+
+const peopleOf = (note: VoiceNote, members: Member[]) => ({
+  reviewerName: note.reviewerName ? displayName(note.reviewerName, members) : null,
+  informedNames: (note.informedNames || []).filter(Boolean).map((n) => displayName(n, members)),
+});
+
+/** Members named elsewhere in the note (checker/informed): likely doers when no doer was said. */
+const mentionedMembers = (note: VoiceNote, members: Member[]): Member[] => {
+  const found = new Map<string, Member>();
+  for (const heard of [note.reviewerName, ...(note.informedNames || [])]) {
+    if (!heard) continue;
+    const result = matchMemberName(heard, members);
+    if (result.kind === 'match') found.set(result.member.id, result.member);
+  }
+  return [...found.values()];
+};
+
+// Reply words, including common Malayalam/Hindi ones as typed in English letters
+const normalizeReply = (reply: string) => reply.trim().toLowerCase().replace(/[.!?,]+$/g, '').trim();
+const CONFIRM = /^(1|yes|yeah|yep|y|ok|okay|k|sure|confirm(ed)?|create( it)?|go( ahead)?|done|haan|ha|han|ji|sari|seri|shari|athe|mathi|👍|✅)(\b.*)?$/i;
+const CHANGE = /^(2|change|edit|another|different|ma+tt?(u|i|anam)?)(\b.*)?$/i;
+const CANCEL = /^(3|no|nope|cancel|stop|don'?t|do not|venda|vendaa|veda|nahi|na|❌)(\b.*)?$/i;
+
+async function updateNote(note: VoiceNote, patch: Partial<typeof voiceNotes.$inferInsert>) {
   const [updated] = await db
     .update(voiceNotes)
-    .set({
-      status: 'awaiting_assignee',
-      assigneeName: heardName ?? note.assigneeName,
-      assigneeCandidates: candidates.length ? candidates.map((c) => ({ id: c.id, name: fullName(c) })) : null,
-      updatedAt: new Date(),
-    })
+    .set({ ...patch, updatedAt: new Date() })
     .where(eq(voiceNotes.id, note.id))
     .returning();
   emitToTenant(note.tenantId, 'voice_note_updated', { id: updated.id, status: updated.status });
+  return updated;
 }
 
-async function createAssignedTask(note: VoiceNote, member: Member): Promise<AssignmentOutcome> {
+async function askForConfirmation(note: VoiceNote, doer: Member, members: Member[]): Promise<AssignmentOutcome> {
+  const updated = await updateNote(note, {
+    status: 'awaiting_confirmation',
+    proposedAssigneeId: doer.id,
+    assigneeCandidates: null,
+  });
+  return {
+    code: 'confirmation_required',
+    title: deriveTitle(updated),
+    due: formatDue(updated.dueDate, updated.dueTime),
+    doerName: fullName(doer),
+    ...peopleOf(updated, members),
+    isReport: updated.noteKind === 'report',
+  };
+}
+
+async function askForAssignee(note: VoiceNote, heardName: string | null, offered: Member[], kind: 'required' | 'not_found' | 'ambiguous'): Promise<AssignmentOutcome> {
+  await updateNote(note, {
+    status: 'awaiting_assignee',
+    proposedAssigneeId: null,
+    assigneeName: heardName ?? note.assigneeName,
+    assigneeCandidates: offered.length ? offered.map((c) => ({ id: c.id, name: fullName(c) })) : null,
+  });
+  const choices = offered.map(fullName);
+  if (kind === 'required' || !heardName) return { code: 'assignee_required', choices };
+  return kind === 'ambiguous'
+    ? { code: 'assignee_ambiguous', heardName, choices }
+    : { code: 'assignee_not_found', heardName, choices };
+}
+
+/** Matches a spoken/typed doer name and either proposes it for confirmation or asks to pick. */
+async function proposeDoer(note: VoiceNote, heard: string | null, members: Member[]): Promise<AssignmentOutcome> {
+  const name = (heard || '').trim();
+  if (!name) return askForAssignee(note, null, mentionedMembers(note, members), 'required');
+
+  const result = matchMemberName(name, members);
+  if (result.kind === 'match') return askForConfirmation(note, result.member, members);
+  return result.kind === 'ambiguous'
+    ? askForAssignee(note, name, result.candidates, 'ambiguous')
+    : askForAssignee(note, name, result.suggestions, 'not_found');
+}
+
+async function createAssignedTask(note: VoiceNote, member: Member, members: Member[]): Promise<AssignmentOutcome> {
   const [tenant] = await db
     .select({ name: tenants.name, ownerUserId: tenants.voicePhoneUserId })
     .from(tenants)
     .where(eq(tenants.id, note.tenantId))
     .limit(1);
   const actorUserId = note.senderUserId ?? tenant?.ownerUserId ?? null;
+  const { reviewerName, informedNames } = peopleOf(note, members);
 
   const result = await withTenant(note.tenantId, async (tx) => {
-    // Claim the note first so a retried webhook can never create a second task for it
+    // Claim the note first so a retried request can never create a second task for it
     const [claimed] = await tx
       .update(voiceNotes)
       .set({ status: 'converted', updatedAt: new Date() })
-      .where(and(eq(voiceNotes.id, note.id), isNull(voiceNotes.taskId)))
+      .where(and(eq(voiceNotes.id, note.id), isNull(voiceNotes.taskId), ne(voiceNotes.status, 'dismissed')))
       .returning({ id: voiceNotes.id });
     if (!claimed) return null;
 
@@ -103,6 +201,10 @@ async function createAssignedTask(note: VoiceNote, member: Member): Promise<Assi
 
     const title = deriveTitle(note);
     const language = note.detectedLanguage ? ` (${note.detectedLanguage})` : '';
+    const people = [
+      reviewerName ? `Checked by: ${reviewerName}` : null,
+      informedNames.length ? `Informed: ${informedNames.join(', ')}` : null,
+    ].filter(Boolean).join('\n');
     const task = await createTaskInTx(tx, {
       tenantId: note.tenantId,
       actorUserId: actorUserId as string,
@@ -110,7 +212,7 @@ async function createAssignedTask(note: VoiceNote, member: Member): Promise<Assi
       values: {
         projectId: null,
         name: title,
-        description: `${note.englishText}\n\nFrom a WhatsApp ${note.audioUrl ? 'voice note' : 'message'} by ${ownerName}${language}.`,
+        description: `${note.englishText}${people ? `\n\n${people}` : ''}\n\nFrom a WhatsApp ${note.audioUrl ? 'voice note' : 'message'} by ${ownerName}${language}.`,
         status: 'to_do',
         assigneeId: member.id,
         customFields: {
@@ -122,27 +224,29 @@ async function createAssignedTask(note: VoiceNote, member: Member): Promise<Assi
           createdFrom: 'sidebar',
           source: 'voice_note',
           voiceNoteId: note.id,
+          reviewerName: reviewerName || undefined,
+          informedNames: informedNames.length ? informedNames : undefined,
         },
       },
     });
 
     await tx
       .update(voiceNotes)
-      .set({ taskId: task.id, reviewedBy: actorUserId, reviewedAt: new Date(), assigneeCandidates: null })
+      .set({ taskId: task.id, reviewedBy: actorUserId, reviewedAt: new Date(), assigneeCandidates: null, proposedAssigneeId: null })
       .where(eq(voiceNotes.id, note.id));
 
     return { task, title, ownerName };
   });
 
   if (!result) {
-    // Already converted (e.g. a retried request): nothing to create and nothing to send again
-    logger.info({ voiceNoteId: note.id }, '[VoiceAssignment] Note already converted; skipping');
+    // Already converted or cancelled (e.g. a retried request): nothing to create and nothing to send again
+    logger.info({ voiceNoteId: note.id }, '[VoiceAssignment] Note already handled; skipping');
     return { code: 'already_assigned' };
   }
 
   const { task, title, ownerName } = result;
   const workId = formatWorkId(task.taskNumber) ?? task.id.slice(0, 8).toUpperCase();
-  const due = formatDue(note.dueDate, note.dueTime);
+  const due = formatDue(note.dueDate, note.dueTime) ?? 'Not set';
   emitToTenant(note.tenantId, 'voice_note_updated', { id: note.id, status: 'converted' });
 
   // Templates (see env.ts). Owner: {{1}} work id, {{2}} employee, {{3}} work, {{4}} due.
@@ -184,51 +288,67 @@ async function createAssignedTask(note: VoiceNote, member: Member): Promise<Assi
 }
 
 export class VoiceAssignmentService {
-  /** Assigns a freshly ingested note using the name Gemini extracted, or asks for one. */
-  static async assignNewNote(note: VoiceNote): Promise<AssignmentOutcome> {
-    return this.resolveAndAssign(note, note.assigneeName);
+  /** A freshly ingested note: propose the doer Gemini extracted (never creates a task directly). */
+  static async proposeNewNote(note: VoiceNote): Promise<AssignmentOutcome> {
+    const members = await loadMembers(note.tenantId);
+    return proposeDoer(note, note.assigneeName, members);
   }
 
   /**
-   * The owner answered "who should do this?" (text, or a voice note that is only a name).
-   * Applies to the most recent note of this workspace still waiting within the window.
+   * The owner replied on WhatsApp. Applies to the most recent note of this workspace that is
+   * waiting for them (within the window). `quiet`: no "send a voice note" nudge when nothing is waiting
+   * (used for chit-chat such as "thanks").
    */
-  static async assignPendingNote(tenantId: string, reply: string): Promise<AssignmentOutcome> {
+  static async handleReply(tenantId: string, reply: string, replyType: ReplyType = 'other', quiet = false): Promise<AssignmentOutcome> {
     const since = new Date(Date.now() - env.VOICE_ASSIGNEE_WINDOW_MINUTES * 60 * 1000);
     const [note] = await db
       .select()
       .from(voiceNotes)
-      .where(and(eq(voiceNotes.tenantId, tenantId), eq(voiceNotes.status, 'awaiting_assignee'), gt(voiceNotes.updatedAt, since)))
+      .where(and(
+        eq(voiceNotes.tenantId, tenantId),
+        inArray(voiceNotes.status, [...PENDING_STATUSES]),
+        gt(voiceNotes.updatedAt, since),
+      ))
       .orderBy(desc(voiceNotes.updatedAt))
       .limit(1);
-    if (!note) return { code: 'no_pending_note' };
+    if (!note) return quiet ? { code: 'ignored' } : { code: 'no_pending_note' };
 
-    // "2" picks the second of the choices offered last time
-    const choice = /^\s*(\d{1,2})\s*$/.exec(reply);
+    const text = normalizeReply(reply);
+    const members = await loadMembers(tenantId);
+
+    if (note.status === 'awaiting_confirmation') {
+      if (CONFIRM.test(text) && replyType !== 'name') {
+        const doer = members.find((m) => m.id === note.proposedAssigneeId);
+        if (doer) return createAssignedTask(note, doer, members);
+        return askForAssignee(note, null, mentionedMembers(note, members), 'required'); // doer was removed meanwhile
+      }
+      if (CANCEL.test(text) && replyType !== 'name') {
+        await updateNote(note, { status: 'dismissed', proposedAssigneeId: null, assigneeCandidates: null });
+        return { code: 'cancelled' };
+      }
+      if (CHANGE.test(text) && replyType !== 'name') {
+        return askForAssignee(note, null, [], 'required');
+      }
+      // A name instead of 1/2/3: use it as the new doer, and confirm again
+      if (replyType === 'name') return proposeDoer(note, reply, members);
+      return { code: 'reply_not_understood' };
+    }
+
+    // awaiting_assignee
+    if (CANCEL.test(text) && !/^\d+$/.test(text)) {
+      await updateNote(note, { status: 'dismissed', proposedAssigneeId: null, assigneeCandidates: null });
+      return { code: 'cancelled' };
+    }
+    // Picking a number from the offered list is an explicit choice of an exact member: create directly
+    const choice = /^(\d{1,2})$/.exec(text);
     if (choice && note.assigneeCandidates?.length) {
       const picked = note.assigneeCandidates[Number(choice[1]) - 1];
-      const member = picked && (await loadMembers(tenantId)).find((m) => m.id === picked.id);
-      if (member) return createAssignedTask(note, member);
+      const doer = picked && members.find((m) => m.id === picked.id);
+      if (doer) return createAssignedTask(note, doer, members);
     }
-    return this.resolveAndAssign(note, reply);
-  }
-
-  private static async resolveAndAssign(note: VoiceNote, spokenName: string | null): Promise<AssignmentOutcome> {
-    const heardName = (spokenName || '').trim();
-    if (!heardName) {
-      await markAwaitingAssignee(note, null, []);
-      return { code: 'assignee_required' };
-    }
-
-    const members = await loadMembers(note.tenantId);
-    const result = matchMemberName(heardName, members);
-    if (result.kind === 'match') return createAssignedTask(note, result.member);
-
-    const offered = result.kind === 'ambiguous' ? result.candidates : result.suggestions;
-    await markAwaitingAssignee(note, heardName, offered);
-    const choices = offered.map(fullName);
-    return result.kind === 'ambiguous'
-      ? { code: 'assignee_ambiguous', heardName, choices }
-      : { code: 'assignee_not_found', heardName, choices };
+    // A number that isn't one of the choices: repeat the question
+    if (choice) return { code: 'assignee_required', choices: (note.assigneeCandidates || []).map((c) => c.name) };
+    // A typed or spoken name: match it and show the result for confirmation
+    return proposeDoer(note, reply, members);
   }
 }

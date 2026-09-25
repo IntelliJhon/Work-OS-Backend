@@ -218,6 +218,13 @@
       "when": 1790400000000,
       "tag": "0030_voice_notes_pm_access",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790500000000,
+      "tag": "0031_voice_note_confirmation",
+      "breakpoints": true
     }
   ]
 }

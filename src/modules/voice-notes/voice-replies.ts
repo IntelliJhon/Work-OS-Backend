@@ -11,8 +11,12 @@ import { logger } from '../../config/logger';
 
 export type ReplyContext =
   | { code: 'task_created'; workId: string | null; assigneeName: string; ownerNotified: boolean; employeeNotified: boolean; employeeHasPhone: boolean }
-  | { code: 'assignee_required' }
+  | { code: 'confirmation_required'; title: string; due: string | null; doerName: string; reviewerName: string | null; informedNames: string[]; isReport: boolean }
+  | { code: 'assignee_required'; choices?: string[] }
   | { code: 'assignee_ambiguous' | 'assignee_not_found'; heardName: string; choices: string[] }
+  | { code: 'reply_not_understood' }
+  | { code: 'cancelled' }
+  | { code: 'ignored' }
   | { code: 'no_pending_note' }
   | { code: 'created'; status: string }
   | { code: 'number_not_registered' }
@@ -34,8 +38,31 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
       }
       return lines.length ? lines.join('\n\n') : null;
     }
+    case 'confirmation_required': {
+      const lines = [
+        ctx.isReport ? "⚠️ This sounds like an update, not new work. Here's what I understood:" : "🎙️ Here's what I understood:",
+        '',
+        `📝 ${ctx.title}`,
+        ctx.due ? `📅 Due: ${ctx.due}` : null,
+        `👤 Doer: ${ctx.doerName}`,
+        ctx.reviewerName ? `✅ Checks it: ${ctx.reviewerName}` : null,
+        ctx.informedNames.length ? `👀 Informed: ${ctx.informedNames.join(', ')}` : null,
+        '',
+        'Reply:',
+        '1 – Create this task',
+        '2 – Change the doer',
+        '3 – Cancel',
+      ];
+      return lines.filter((l) => l !== null).join('\n');
+    }
     case 'assignee_required':
-      return "🎙️ Got it. Who should do this work? Reply with the employee's name.";
+      return ctx.choices?.length
+        ? `Who should do this work?\n${numbered(ctx.choices)}\n\nReply with the number or the employee's name.`
+        : "Who should do this work? Reply with the employee's name.";
+    case 'reply_not_understood':
+      return 'Please reply 1 to create the task, 2 to change the doer, or 3 to cancel.';
+    case 'cancelled':
+      return '❌ Cancelled. No task was created.';
     case 'assignee_ambiguous':
       return `Which ${ctx.heardName}?\n${numbered(ctx.choices)}\n\nReply with the number or the full name.`;
     case 'assignee_not_found': {

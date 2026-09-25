@@ -14,6 +14,7 @@ import { getTenantRoom } from '../../socket/tenantRooms';
 import { logger } from '../../config/logger';
 
 const assignee = alias(users, 'assignee');
+const proposed = alias(users, 'proposed');
 
 const handleError = (err: any, res: Response, next: NextFunction) => {
   if (err instanceof VoiceSettingsError) {
@@ -95,12 +96,15 @@ export class VoiceNotesController {
             senderLastName: users.lastName,
             taskNumber: tasks.taskNumber,
             assigneeFirstName: assignee.firstName,
+            proposedFirstName: proposed.firstName,
+            proposedLastName: proposed.lastName,
             assigneeLastName: assignee.lastName,
           })
           .from(voiceNotes)
           .leftJoin(users, eq(users.id, voiceNotes.senderUserId))
           .leftJoin(tasks, eq(tasks.id, voiceNotes.taskId))
           .leftJoin(assignee, eq(assignee.id, tasks.assigneeId))
+          .leftJoin(proposed, eq(proposed.id, voiceNotes.proposedAssigneeId))
           .where(where)
           .orderBy(desc(voiceNotes.createdAt))
           .limit(limit)
@@ -125,6 +129,7 @@ export class VoiceNotesController {
           senderName: joinName(r.senderFirstName, r.senderLastName),
           workId: formatWorkId(r.taskNumber),
           taskAssigneeName: joinName(r.assigneeFirstName, r.assigneeLastName),
+          proposedAssigneeName: joinName(r.proposedFirstName, r.proposedLastName),
         })),
         counts,
         pagination: { limit, offset },
