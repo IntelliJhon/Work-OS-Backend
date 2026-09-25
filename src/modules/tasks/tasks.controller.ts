@@ -12,6 +12,8 @@ import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 import { WebhookService } from '../../services/webhook.service';
 import { createTaskInTx } from './tasks.service';
+import { voiceNotes } from '../../db/schema/voice_notes';
+import { emitToTenant } from '../voice-notes/voice-notes.controller';
 
 export class TasksController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -178,6 +180,7 @@ export class TasksController {
     try {
       const tenantId = req.user!.tenantId;
       const id = req.params.id as string;
+      let dismissedNotes: { id: string }[] = [];
 
       await withTenant(tenantId, async (tx) => {
         const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)));
@@ -198,6 +201,14 @@ export class TasksController {
         if (accessLevel !== 'admin' && accessLevel !== 'project_manager') {
           throw new ForbiddenError('You are not allowed to update this task');
         }
+
+        // A voice note that became this task goes back to Dismissed. Must run before the delete,
+        // which clears voice_notes.task_id (ON DELETE SET NULL).
+        dismissedNotes = await tx
+          .update(voiceNotes)
+          .set({ status: 'dismissed', taskId: null, updatedAt: new Date() })
+          .where(and(eq(voiceNotes.taskId, id), eq(voiceNotes.tenantId, tenantId)))
+          .returning({ id: voiceNotes.id });
 
         await tx.delete(tasks).where(eq(tasks.id, id));
 
@@ -224,6 +235,10 @@ export class TasksController {
           logger.warn({ msg: 'Socket delete broadcast skipped', err: socketErr.message });
         }
       });
+
+      for (const note of dismissedNotes) {
+        emitToTenant(tenantId, 'voice_note_updated', { id: note.id, status: 'dismissed' });
+      }
 
       return res.status(204).send();
     } catch (error) {

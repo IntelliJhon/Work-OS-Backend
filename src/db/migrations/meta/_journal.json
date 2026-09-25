@@ -211,6 +211,13 @@
       "when": 1790300000000,
       "tag": "0029_voice_task_assignment",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790400000000,
+      "tag": "0030_voice_notes_pm_access",
+      "breakpoints": true
     }
   ]
 }

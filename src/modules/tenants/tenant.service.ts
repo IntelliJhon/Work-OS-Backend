@@ -51,7 +51,9 @@ export class TenantService {
             "project.manage": true,
             "task.create": true,
             "task.read": true,
-            "task.update": true
+            "task.update": true,
+            "voice_notes.read": true,
+            "voice_notes.update": true
           }
         },
         { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true } },
