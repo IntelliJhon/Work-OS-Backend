@@ -45,11 +45,11 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
         : `I couldn't find "${ctx.heardName}"${where}. Reply with the employee's name as it appears in Work OS.`;
     }
     case 'no_pending_note':
-      return 'Please send the work as a voice note, and say who should do it.';
+      return 'Please send the work as a voice note or a message, and say who should do it.';
     case 'created':
       return ctx.status === 'unclear'
         ? "🎙️ Voice note received. It wasn't fully clear, so your team will listen to the recording."
-        : '✅ Voice note received. Your team can see it in the Work OS Voice Notes inbox.';
+        : '✅ Received. Your team can see it in the Work OS Voice Notes inbox.';
     case 'number_not_registered':
       return "This WhatsApp number isn't registered with Work OS. Ask your workspace admin to add it under Settings → Voice Notes.";
     case 'error':

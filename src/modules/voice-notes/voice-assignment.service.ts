@@ -110,7 +110,7 @@ async function createAssignedTask(note: VoiceNote, member: Member): Promise<Assi
       values: {
         projectId: null,
         name: title,
-        description: `${note.englishText}\n\nFrom a WhatsApp voice note by ${ownerName}${language}.`,
+        description: `${note.englishText}\n\nFrom a WhatsApp ${note.audioUrl ? 'voice note' : 'message'} by ${ownerName}${language}.`,
         status: 'to_do',
         assigneeId: member.id,
         customFields: {
