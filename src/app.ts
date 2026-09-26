@@ -32,6 +32,7 @@ import { workReportsRouter } from './modules/work-reports/work-reports.routes';
 import clientEnquiriesRouter from './modules/clients/client-enquiries.routes';
 import expiryCronRouter from './modules/cron/expiry-cron.routes';
 import { voiceNotesRouter, integrationsRouter } from './modules/voice-notes/voice-notes.routes';
+import { platformRouter } from './modules/whatsapp-bots/whatsapp-bots.routes';
 
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -92,6 +93,7 @@ app.use('/api/work-reports', workReportsRouter);
 app.use('/api/cron', expiryCronRouter);
 app.use('/api/voice-notes', voiceNotesRouter);
 app.use('/api/integrations', integrationsRouter);
+app.use('/api/platform', platformRouter);
 
 // Background Jobs Dashboard
 app.use('/admin/queues', serverAdapter.getRouter());

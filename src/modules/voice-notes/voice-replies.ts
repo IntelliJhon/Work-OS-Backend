@@ -1,4 +1,4 @@
-import { WhatsAppService } from '../../services/whatsapp.service';
+import { WhatsAppService, type WhatsAppSender } from '../../services/whatsapp.service';
 import { maskPhone } from '../../lib/phone';
 import { logger } from '../../config/logger';
 
@@ -20,6 +20,7 @@ export type ReplyContext =
   | { code: 'no_pending_note' }
   | { code: 'created'; status: string }
   | { code: 'number_not_registered' }
+  | { code: 'wrong_bot'; businessPhone: string | null }
   | { code: 'duplicate' | 'already_assigned' }
   | { code: 'error' };
 
@@ -77,6 +78,10 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
       return ctx.status === 'unclear'
         ? "🎙️ Voice note received. It wasn't fully clear, so your team will listen to the recording."
         : '✅ Received. Your team can see it in the Work OS Voice Notes inbox.';
+    case 'wrong_bot':
+      return ctx.businessPhone
+        ? `Your workspace uses its own Work OS WhatsApp bot. Please send your work to +${ctx.businessPhone}.`
+        : 'Your workspace uses its own Work OS WhatsApp bot. Please send your work there.';
     case 'number_not_registered':
       return "This WhatsApp number isn't registered with Work OS. Ask your workspace admin to add it under Settings → Voice Notes.";
     case 'error':
@@ -91,7 +96,7 @@ const notRegisteredSentAt = new Map<string, number>();
 const NOT_REGISTERED_COOLDOWN_MS = 10 * 60 * 1000;
 
 /** Sends the reply for this outcome, if any. Never throws; returns whether a message was sent. */
-export async function sendReply(phone: string, ctx: ReplyContext, workspace?: string): Promise<boolean> {
+export async function sendReply(phone: string, ctx: ReplyContext, workspace?: string, sender?: WhatsAppSender): Promise<boolean> {
   if (ctx.code === 'number_not_registered') {
     const last = notRegisteredSentAt.get(phone) ?? 0;
     if (Date.now() - last < NOT_REGISTERED_COOLDOWN_MS) return false;
@@ -102,7 +107,7 @@ export async function sendReply(phone: string, ctx: ReplyContext, workspace?: st
   const text = buildReply(ctx, workspace);
   if (!text) return false;
   try {
-    const result = await WhatsAppService.sendText(phone, text);
+    const result = await WhatsAppService.sendText(phone, text, sender);
     if (!result.success) {
       logger.warn({ to: maskPhone(phone), code: ctx.code, error: result.error }, '[VoiceReplies] Reply not sent');
     }

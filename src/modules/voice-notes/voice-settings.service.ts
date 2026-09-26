@@ -4,6 +4,7 @@ import { db } from '../../db';
 import { tenants } from '../../db/schema/tenants';
 import { normalizePhone, maskPhone } from '../../lib/phone';
 import { WhatsAppService } from '../../services/whatsapp.service';
+import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import { logger } from '../../config/logger';
 
 const OTP_TTL_MS = 10 * 60 * 1000;      // code valid for 10 minutes
@@ -81,7 +82,8 @@ export class VoiceSettingsService {
 
     const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
 
-    const sent = await WhatsAppService.sendVerificationCode(phone, code);
+    const wa = await WhatsAppBotsService.forTenant(tenantId);
+    const sent = await WhatsAppService.sendVerificationCode(phone, code, { sender: wa.sender, template: wa.templates.otp, lang: wa.templates.otpLang });
     if (!sent.success) {
       logger.error({ tenantId, phone: maskPhone(phone), error: sent.error }, '[VoiceSettings] Failed to send verification code');
       throw new VoiceSettingsError(502, 'send_failed', 'Could not send the code on WhatsApp. Check the number and try again.');

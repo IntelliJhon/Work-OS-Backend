@@ -40,6 +40,10 @@ const envSchema = z.object({
   VOICE_ASSIGNEE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).optional().default(30),
   // Used to resolve spoken dates/times ("tomorrow at 5") and to format due dates in messages
   WORK_TIMEZONE: z.string().optional().default('Asia/Kolkata'),
+  // 32-byte key (64 hex chars) for secrets stored in the database, e.g. workspaces' WhatsApp tokens
+  SECRETS_ENCRYPTION_KEY: z.string().optional(),
+  // Comma-separated emails of platform admins (can manage every workspace's WhatsApp bot)
+  PLATFORM_ADMIN_EMAILS: z.string().optional().default(''),
 });
 
 const _env = envSchema.safeParse(process.env);

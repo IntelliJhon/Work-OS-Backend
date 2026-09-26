@@ -13,14 +13,20 @@ export interface WhatsAppComplaintAlertPayload {
   createdAt?: string;
 }
 
+/** A WhatsApp channel to send from (a workspace's own WAAU bot). Omitted = the platform default account. */
+export interface WhatsAppSender {
+  accessToken: string;
+  phoneNumberId: string;
+}
+
 export class WhatsAppService {
   private static readonly REQUEST_TIMEOUT_MS = 10_000;
 
-  private static getApiConfig() {
+  private static getApiConfig(sender?: WhatsAppSender) {
     const crmApiUrl = (process.env.CRM_API_URL || env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '');
     const apiVersion = process.env.CRM_API_VERSION || 'v19.0';
-    const accessToken = process.env.CRM_API_ACCESS_TOKEN || process.env.WHATSAPP_API_ACCESS_TOKEN || env.CRM_API_ACCESS_TOKEN || 'nN4nTt9OSg5MkY1MksuWT3VmMfTkMIYhSghRJcAREFTSAoetUtHWYNrleHTUXzEmsREFTSAEqnPgpf6OQ75GYg4oM3rXFE0bORedVU5ERVJTQ09SRQY56ho939eYgJz1H88zR855ikVU5ERVJTQ09SRQ6sVeIIw';
-    const phoneNumberId = process.env.CRM_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || env.CRM_PHONE_NUMBER_ID || '810611068796796';
+    const accessToken = sender?.accessToken || process.env.CRM_API_ACCESS_TOKEN || process.env.WHATSAPP_API_ACCESS_TOKEN || env.CRM_API_ACCESS_TOKEN || 'nN4nTt9OSg5MkY1MksuWT3VmMfTkMIYhSghRJcAREFTSAoetUtHWYNrleHTUXzEmsREFTSAEqnPgpf6OQ75GYg4oM3rXFE0bORedVU5ERVJTQ09SRQY56ho939eYgJz1H88zR855ikVU5ERVJTQ09SRQ6sVeIIw';
+    const phoneNumberId = sender?.phoneNumberId || process.env.CRM_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || env.CRM_PHONE_NUMBER_ID || '810611068796796';
     const developerPhones = (process.env.DEVELOPER_WHATSAPP_NUMBERS || process.env.DEVELOPER_PHONE_NUMBER || '917736956474,919061451636')
       .split(',')
       .map(p => p.trim())
@@ -343,11 +349,15 @@ export class WhatsAppService {
    * body "{{1}} is your verification code." with a "Copy code" button.
    * Meta requires the code in both the body parameter and the button URL parameter.
    */
-  static async sendVerificationCode(recipientPhone: string, code: string): Promise<{ success: boolean; error?: string }> {
-    return this.sendTemplateMessage(recipientPhone, env.WHATSAPP_OTP_TEMPLATE, env.WHATSAPP_OTP_TEMPLATE_LANG, [
+  static async sendVerificationCode(
+    recipientPhone: string,
+    code: string,
+    options: { sender?: WhatsAppSender; template?: string; lang?: string } = {},
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.sendTemplateMessage(recipientPhone, options.template || env.WHATSAPP_OTP_TEMPLATE, options.lang || env.WHATSAPP_OTP_TEMPLATE_LANG, [
       { type: 'body', parameters: [{ type: 'text', text: code }] },
       { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
-    ]);
+    ], options.sender);
   }
 
   /**
@@ -359,20 +369,21 @@ export class WhatsAppService {
     templateName: string,
     languageCode: string,
     bodyParams: string[],
+    sender?: WhatsAppSender,
   ): Promise<{ success: boolean; error?: string }> {
     const parameters = bodyParams.map((value) => ({
       type: 'text',
       text: String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 300) || '-',
     }));
-    return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [{ type: 'body', parameters }]);
+    return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [{ type: 'body', parameters }], sender);
   }
 
   /**
    * Free-form text message. Meta only delivers these inside the 24-hour window after the recipient
    * last messaged the business (e.g. a reply to someone who just sent the bot a voice note).
    */
-  static async sendText(recipientPhone: string, text: string): Promise<{ success: boolean; error?: string }> {
-    return this.postMessage(recipientPhone, 'text', { type: 'text', text: { preview_url: false, body: text.slice(0, 4000) } });
+  static async sendText(recipientPhone: string, text: string, sender?: WhatsAppSender): Promise<{ success: boolean; error?: string }> {
+    return this.postMessage(recipientPhone, 'text', { type: 'text', text: { preview_url: false, body: text.slice(0, 4000) } }, sender);
   }
 
   private static async sendTemplateMessage(
@@ -380,6 +391,7 @@ export class WhatsAppService {
     templateName: string,
     languageCode: string,
     components: unknown[],
+    sender?: WhatsAppSender,
   ): Promise<{ success: boolean; error?: string }> {
     return this.postMessage(recipientPhone, templateName, {
       type: 'template',
@@ -388,15 +400,16 @@ export class WhatsAppService {
         language: { policy: 'deterministic', code: languageCode },
         components,
       },
-    });
+    }, sender);
   }
 
   private static async postMessage(
     recipientPhone: string,
     label: string,
     message: Record<string, unknown>,
+    sender?: WhatsAppSender,
   ): Promise<{ success: boolean; error?: string }> {
-    const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig();
+    const { accessToken, phoneNumberId, targetUrls } = this.getApiConfig(sender);
     if (!accessToken || !phoneNumberId) {
       return { success: false, error: 'WhatsApp API is not configured' };
     }
@@ -418,7 +431,7 @@ export class WhatsAppService {
         const data: any = await res.json().catch(() => ({}));
         const ms = Date.now() - started;
         if (res.ok) {
-          logger.info({ message: label, to: to.slice(-4), url: apiUrl, ms }, '[WhatsAppService] Message sent');
+          logger.info({ message: label, to: to.slice(-4), from: phoneNumberId, url: apiUrl, ms }, '[WhatsAppService] Message sent');
           return { success: true };
         }
         lastError = data?.error?.message || `HTTP ${res.status}`;

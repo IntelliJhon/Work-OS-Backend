@@ -57,6 +57,8 @@ export const ingestVoiceNoteSchema = z.object({
     reviewerName: z.string().max(150).nullish(),
     informedNames: z.array(z.string().max(150)).max(20).nullish(),
     noteKind: z.enum(VOICE_NOTE_KINDS).nullish(),
+    // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
+    botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
     // 'whatsapp': Work OS sends the WhatsApp reply itself (n8n answers WAAU immediately)
     replyMode: z.enum(['whatsapp']).optional(),
   }),
@@ -69,6 +71,8 @@ export const assignVoiceNoteSchema = z.object({
     senderPhone: z.string().trim().min(8).max(25),
     // The owner's answer: an employee name, or the number of an offered choice
     reply: z.string().trim().min(1).max(200),
+    // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
+    botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
     replyMode: z.enum(['whatsapp']).optional(),
     // 'choice': a typed number; 'name': only a person's name; 'other': anything else (yes/no/cancel…)
     replyType: z.enum(['choice', 'name', 'other']).optional(),
@@ -82,6 +86,8 @@ export type AssignVoiceNoteBody = z.infer<typeof assignVoiceNoteSchema>['body'];
 export const voiceContextSchema = z.object({
   body: z.object({
     senderPhone: z.string().trim().min(8).max(25),
+    // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
+    botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
     // 'whatsapp': reply "not registered" to unknown senders (they are not sent to Gemini)
     replyMode: z.enum(['whatsapp']).optional(),
   }),

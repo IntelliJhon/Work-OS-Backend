@@ -8,6 +8,7 @@ import { matchMemberName } from '../../lib/names';
 import { maskPhone } from '../../lib/phone';
 import { createTaskInTx, formatWorkId } from '../tasks/tasks.service';
 import { WhatsAppService } from '../../services/whatsapp.service';
+import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { emitToTenant } from './voice-notes.controller';
@@ -249,12 +250,14 @@ async function createAssignedTask(note: VoiceNote, member: Member, members: Memb
   const due = formatDue(note.dueDate, note.dueTime) ?? 'Not set';
   emitToTenant(note.tenantId, 'voice_note_updated', { id: note.id, status: 'converted' });
 
-  // Templates (see env.ts). Owner: {{1}} work id, {{2}} employee, {{3}} work, {{4}} due.
+  // Templates from the workspace's own bot (or the platform default). Owner: {{1}} work id, {{2}} employee, {{3}} work, {{4}} due.
+  const wa = await WhatsAppBotsService.forTenant(note.tenantId);
   const ownerSend = await WhatsAppService.sendBodyTemplate(
     note.senderPhone,
-    env.WHATSAPP_WORK_OWNER_TEMPLATE,
-    env.WHATSAPP_WORK_TEMPLATE_LANG,
+    wa.templates.owner,
+    wa.templates.lang,
     [workId, fullName(member), title, due],
+    wa.sender,
   );
 
   // Employee: {{1}} employee first name, {{2}} owner, {{3}} work id, {{4}} work, {{5}} due.
@@ -262,9 +265,10 @@ async function createAssignedTask(note: VoiceNote, member: Member, members: Memb
   if (member.phone) {
     const employeeSend = await WhatsAppService.sendBodyTemplate(
       member.phone,
-      env.WHATSAPP_WORK_EMPLOYEE_TEMPLATE,
-      env.WHATSAPP_WORK_TEMPLATE_LANG,
+      wa.templates.employee,
+      wa.templates.lang,
       [member.firstName, ownerName, workId, title, due],
+      wa.sender,
     );
     employeeNotified = employeeSend.success;
     if (!employeeSend.success) {

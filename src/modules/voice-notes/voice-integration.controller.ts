@@ -11,6 +11,8 @@ import { emitToTenant } from './voice-notes.controller';
 import { VoiceAssignmentService, listMemberNames } from './voice-assignment.service';
 import { sendReply, type ReplyContext } from './voice-replies';
 import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
+import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
+import type { WhatsAppSender } from '../../services/whatsapp.service';
 
 /** Constant-time secret comparison (hashing first makes lengths equal). */
 const secretMatches = (provided: unknown, expected: string) => {
@@ -58,7 +60,13 @@ type Result = { status: number; payload: Payload };
  * immediately with 202 and Work OS sends the WhatsApp reply itself once the work is done: creating a
  * task and sending templates can take longer than n8n waits, and a timed-out request would be retried.
  */
-async function run(res: Response, next: NextFunction, replyTo: string | null, work: () => Promise<Result>) {
+async function run(
+  res: Response,
+  next: NextFunction,
+  replyTo: string | null,
+  botId: string | null | undefined,
+  work: () => Promise<Result>,
+) {
   if (!replyTo) {
     try {
       const { status, payload } = await work();
@@ -69,13 +77,30 @@ async function run(res: Response, next: NextFunction, replyTo: string | null, wo
   }
 
   res.status(202).json({ success: true, code: 'accepted' });
+  // WhatsApp's 24h window belongs to the number the sender messaged, so reply through that bot
+  let sender: WhatsAppSender | undefined;
   try {
+    sender = await WhatsAppBotsService.senderForBot(botId);
     const { payload } = await work();
-    await sendReply(replyTo, payload as unknown as ReplyContext, payload.workspace);
+    await sendReply(replyTo, payload as unknown as ReplyContext, payload.workspace, sender);
   } catch (err) {
-    logger.error({ err, to: maskPhone(replyTo) }, '[VoiceIntegration] Processing failed after accepting the request');
-    await sendReply(replyTo, { code: 'error' });
+    logger.error({ err, to: maskPhone(replyTo), botId }, '[VoiceIntegration] Processing failed after accepting the request');
+    await sendReply(replyTo, { code: 'error' }, undefined, sender);
   }
+}
+
+/** The sender's workspace, checked against the bot the message came through. */
+async function tenantForBot(phone: string, botId: string | null | undefined): Promise<
+  { tenant: NonNullable<Awaited<ReturnType<typeof findTenantByVoicePhone>>> } | { result: Result }
+> {
+  const tenant = await findTenantByVoicePhone(phone);
+  if (!tenant) return { result: notRegistered(phone) };
+  const wrong = await WhatsAppBotsService.wrongBot(tenant.id, botId);
+  if (wrong) {
+    logger.info({ tenantId: tenant.id, botId }, '[VoiceIntegration] Message came through another workspace bot');
+    return { result: { status: 409, payload: { code: 'wrong_bot', businessPhone: wrong.businessPhone, error: 'This workspace uses a different WhatsApp bot' } } };
+  }
+  return { tenant };
 }
 
 const notRegistered = (phone: string): Result => {
@@ -102,12 +127,13 @@ export class VoiceIntegrationController {
     if (!phone) {
       return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
     }
-    return run(res, next, body.replyMode === 'whatsapp' ? phone : null, () => VoiceIntegrationController.processIngest(body, phone));
+    return run(res, next, body.replyMode === 'whatsapp' ? phone : null, body.botId, () => VoiceIntegrationController.processIngest(body, phone));
   }
 
   private static async processIngest(body: IngestVoiceNoteBody, phone: string): Promise<Result> {
-    const tenant = await findTenantByVoicePhone(phone);
-    if (!tenant) return notRegistered(phone);
+    const found = await tenantForBot(phone, body.botId);
+    if ('result' in found) return found.result;
+    const { tenant } = found;
 
     const englishText = (body.englishText || '').trim();
     const flaggedUnclear = body.unclear === true || body.unclear === 'true';
@@ -170,9 +196,10 @@ export class VoiceIntegrationController {
     if (!phone) {
       return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
     }
-    return run(res, next, body.replyMode === 'whatsapp' ? phone : null, async () => {
-      const tenant = await findTenantByVoicePhone(phone);
-      if (!tenant) return notRegistered(phone);
+    return run(res, next, body.replyMode === 'whatsapp' ? phone : null, body.botId, async () => {
+      const found = await tenantForBot(phone, body.botId);
+      if ('result' in found) return found.result;
+      const { tenant } = found;
       const outcome = await VoiceAssignmentService.handleReply(tenant.id, body.reply, body.replyType, body.quiet === true);
       return { status: 200, payload: { success: true, workspace: tenant.name, ...outcome } };
     });
@@ -189,14 +216,18 @@ export class VoiceIntegrationController {
       if (!phone) {
         return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
       }
-      const tenant = await findTenantByVoicePhone(phone);
-      if (!tenant) {
-        const { status, payload } = notRegistered(phone);
+      const botId: string | undefined = req.body?.botId || undefined;
+      const found = await tenantForBot(phone, botId);
+      if ('result' in found) {
+        const { status, payload } = found.result;
         res.status(status).json(payload);
-        // Reply after answering, so a slow WhatsApp send never delays n8n (rate-limited per number)
-        if (req.body?.replyMode === 'whatsapp') await sendReply(phone, payload as unknown as ReplyContext);
+        // Reply after answering, so a slow WhatsApp send never delays n8n ("not registered" is rate-limited per number)
+        if (req.body?.replyMode === 'whatsapp') {
+          await sendReply(phone, payload as unknown as ReplyContext, undefined, await WhatsAppBotsService.senderForBot(botId));
+        }
         return;
       }
+      const { tenant } = found;
 
       return res.json({ success: true, code: 'registered', workspace: tenant.name, members: await listMemberNames(tenant.id) });
     } catch (err) {
