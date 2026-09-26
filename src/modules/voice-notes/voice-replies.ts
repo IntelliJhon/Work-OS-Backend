@@ -20,7 +20,7 @@ export type ReplyContext =
   | { code: 'no_pending_note' }
   | { code: 'created'; status: string }
   | { code: 'number_not_registered' }
-  | { code: 'wrong_bot'; businessPhone: string | null }
+  | { code: 'wrong_bot'; businessPhone: string | null; ownBot: boolean }
   | { code: 'duplicate' | 'already_assigned' }
   | { code: 'error' };
 
@@ -79,6 +79,7 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
         ? "🎙️ Voice note received. It wasn't fully clear, so your team will listen to the recording."
         : '✅ Received. Your team can see it in the Work OS Voice Notes inbox.';
     case 'wrong_bot':
+      if (!ctx.ownBot) return 'Your workspace uses the main Work OS WhatsApp bot, not this one. Please send your work there.';
       return ctx.businessPhone
         ? `Your workspace uses its own Work OS WhatsApp bot. Please send your work to +${ctx.businessPhone}.`
         : 'Your workspace uses its own Work OS WhatsApp bot. Please send your work there.';
@@ -95,8 +96,15 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
 const notRegisteredSentAt = new Map<string, number>();
 const NOT_REGISTERED_COOLDOWN_MS = 10 * 60 * 1000;
 
-/** Sends the reply for this outcome, if any. Never throws; returns whether a message was sent. */
-export async function sendReply(phone: string, ctx: ReplyContext, workspace?: string, sender?: WhatsAppSender): Promise<boolean> {
+/**
+ * Sends the reply for this outcome, if any. Never throws; returns whether a message was sent.
+ * sender undefined = platform default bot; null = the bot that was messaged is unknown, so no reply.
+ */
+export async function sendReply(phone: string, ctx: ReplyContext, workspace?: string, sender?: WhatsAppSender | null): Promise<boolean> {
+  if (sender === null) {
+    logger.warn({ to: maskPhone(phone), code: ctx.code }, '[VoiceReplies] Message came through an unknown bot; no reply sent');
+    return false;
+  }
   if (ctx.code === 'number_not_registered') {
     const last = notRegisteredSentAt.get(phone) ?? 0;
     if (Date.now() - last < NOT_REGISTERED_COOLDOWN_MS) return false;

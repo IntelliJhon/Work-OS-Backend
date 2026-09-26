@@ -51,18 +51,23 @@ export class WhatsAppBotsService {
     };
   }
 
-  /** The sender for a bot ID passed by n8n (?bot=…); undefined = platform default bot. */
-  static async senderForBot(botId: string | null | undefined): Promise<WhatsAppSender | undefined> {
+  /**
+   * The sender for a bot ID passed by n8n (URL segment); undefined = platform default bot.
+   * null = a bot Work OS has no token for (e.g. removed on the WhatsApp Bots screen): no reply can be
+   * sent through it, and replying through another number would reach the sender from a chat they didn't use.
+   */
+  static async senderForBot(botId: string | null | undefined): Promise<WhatsAppSender | undefined | null> {
     if (!botId || botId === defaultBotId()) return undefined;
     const [bot] = await db.select().from(tenantWhatsappBots).where(eq(tenantWhatsappBots.phoneNumberId, botId)).limit(1);
-    return bot ? { accessToken: decryptSecret(bot.accessTokenEncrypted), phoneNumberId: bot.phoneNumberId } : undefined;
+    return bot ? { accessToken: decryptSecret(bot.accessTokenEncrypted), phoneNumberId: bot.phoneNumberId } : null;
   }
 
   /**
    * A workspace must be reached through its own bot (or the default bot if it has none).
-   * Returns null when the message came in through the right bot, otherwise the number to use instead.
+   * Returns null when the message came in through the right bot, otherwise the bot to use instead
+   * (ownBot false = the platform default bot).
    */
-  static async wrongBot(tenantId: string, botId: string | null | undefined): Promise<null | { businessPhone: string | null }> {
+  static async wrongBot(tenantId: string, botId: string | null | undefined): Promise<null | { businessPhone: string | null; ownBot: boolean }> {
     const receiving = botId || defaultBotId();
     const [bot] = await db
       .select({ phoneNumberId: tenantWhatsappBots.phoneNumberId, businessPhone: tenantWhatsappBots.businessPhone })
@@ -70,7 +75,7 @@ export class WhatsAppBotsService {
       .where(eq(tenantWhatsappBots.tenantId, tenantId))
       .limit(1);
     const expected = bot?.phoneNumberId ?? defaultBotId();
-    return receiving === expected ? null : { businessPhone: bot?.businessPhone ?? null };
+    return receiving === expected ? null : { businessPhone: bot?.businessPhone ?? null, ownBot: !!bot };
   }
 
   // ---------- Platform admin ----------

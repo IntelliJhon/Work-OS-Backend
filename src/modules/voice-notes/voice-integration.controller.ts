@@ -78,7 +78,7 @@ async function run(
 
   res.status(202).json({ success: true, code: 'accepted' });
   // WhatsApp's 24h window belongs to the number the sender messaged, so reply through that bot
-  let sender: WhatsAppSender | undefined;
+  let sender: WhatsAppSender | undefined | null;
   try {
     sender = await WhatsAppBotsService.senderForBot(botId);
     const { payload } = await work();
@@ -98,7 +98,7 @@ async function tenantForBot(phone: string, botId: string | null | undefined): Pr
   const wrong = await WhatsAppBotsService.wrongBot(tenant.id, botId);
   if (wrong) {
     logger.info({ tenantId: tenant.id, botId }, '[VoiceIntegration] Message came through another workspace bot');
-    return { result: { status: 409, payload: { code: 'wrong_bot', businessPhone: wrong.businessPhone, error: 'This workspace uses a different WhatsApp bot' } } };
+    return { result: { status: 409, payload: { code: 'wrong_bot', businessPhone: wrong.businessPhone, ownBot: wrong.ownBot, error: 'This workspace uses a different WhatsApp bot' } } };
   }
   return { tenant };
 }
