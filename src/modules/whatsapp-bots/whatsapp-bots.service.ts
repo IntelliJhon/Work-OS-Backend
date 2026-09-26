@@ -62,6 +62,17 @@ export class WhatsAppBotsService {
     return bot ? { accessToken: decryptSecret(bot.accessTokenEncrypted), phoneNumberId: bot.phoneNumberId } : null;
   }
 
+  /** Whether Work OS serves this bot: the platform default bot, or one saved on the WhatsApp Bots screen. */
+  static async isRegisteredBot(botId: string | null | undefined): Promise<boolean> {
+    if (!botId || botId === defaultBotId()) return true;
+    const [bot] = await db
+      .select({ phoneNumberId: tenantWhatsappBots.phoneNumberId })
+      .from(tenantWhatsappBots)
+      .where(eq(tenantWhatsappBots.phoneNumberId, botId))
+      .limit(1);
+    return !!bot;
+  }
+
   /**
    * A workspace must be reached through its own bot (or the default bot if it has none).
    * Returns null when the message came in through the right bot, otherwise the bot to use instead

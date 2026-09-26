@@ -20,6 +20,7 @@ export type ReplyContext =
   | { code: 'no_pending_note' }
   | { code: 'created'; status: string }
   | { code: 'number_not_registered' }
+  | { code: 'bot_not_registered' }
   | { code: 'wrong_bot'; businessPhone: string | null; ownBot: boolean }
   | { code: 'duplicate' | 'already_assigned' }
   | { code: 'error' };
@@ -85,6 +86,8 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
         : 'Your workspace uses its own Work OS WhatsApp bot. Please send your work there.';
     case 'number_not_registered':
       return "This WhatsApp number isn't registered with Work OS. Ask your workspace admin to add it under Settings → Voice Notes.";
+    case 'bot_not_registered':
+      return 'This bot is not registered with Work OS.';
     case 'error':
       return 'Sorry, we could not process your message right now. Please try again in a few minutes.';
     default:

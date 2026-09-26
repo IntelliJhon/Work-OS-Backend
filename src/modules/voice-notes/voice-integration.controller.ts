@@ -9,7 +9,7 @@ import { logger } from '../../config/logger';
 import { normalizePhone, maskPhone } from '../../lib/phone';
 import { emitToTenant } from './voice-notes.controller';
 import { VoiceAssignmentService, listMemberNames } from './voice-assignment.service';
-import { sendReply, type ReplyContext } from './voice-replies';
+import { buildReply, sendReply, type ReplyContext } from './voice-replies';
 import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
 import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import type { WhatsAppSender } from '../../services/whatsapp.service';
@@ -230,6 +230,24 @@ export class VoiceIntegrationController {
       const { tenant } = found;
 
       return res.json({ success: true, code: 'registered', workspace: tenant.name, members: await listMemberNames(tenant.id) });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  /**
+   * POST /api/integrations/voice-notes/bot-status  (called by n8n before answering WAAU)
+   * Work OS has no token for an unregistered bot, so it cannot reply through it; n8n answers WAAU
+   * with `reply` instead (WAAU sends it through the bot that was messaged).
+   */
+  static async botStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const botId: string | undefined = req.body?.botId || undefined;
+      if (await WhatsAppBotsService.isRegisteredBot(botId)) {
+        return res.json({ success: true, registered: true });
+      }
+      logger.info({ botId }, '[VoiceIntegration] Message came through a bot that is not registered');
+      return res.json({ success: true, registered: false, code: 'bot_not_registered', reply: buildReply({ code: 'bot_not_registered' }) });
     } catch (err) {
       return next(err);
     }

@@ -92,3 +92,10 @@ export const voiceContextSchema = z.object({
     replyMode: z.enum(['whatsapp']).optional(),
   }),
 });
+
+export const botStatusSchema = z.object({
+  body: z.object({
+    // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
+    botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
+  }),
+});
