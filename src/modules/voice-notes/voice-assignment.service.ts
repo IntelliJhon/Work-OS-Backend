@@ -220,6 +220,7 @@ async function createAssignedTask(note: VoiceNote, member: Member, members: Memb
           priority: 'medium',
           dueDate: note.dueDate || undefined,
           dueTime: note.dueTime || undefined,
+          reminderMinutes: note.dueTime && env.VOICE_REMINDER_MINUTES > 0 ? env.VOICE_REMINDER_MINUTES : undefined,
           storyPoints: 0,
           subtasks: [],
           createdFrom: 'sidebar',

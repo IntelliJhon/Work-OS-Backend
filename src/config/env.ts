@@ -36,6 +36,12 @@ const envSchema = z.object({
   WHATSAPP_WORK_OWNER_TEMPLATE: z.string().optional().default('work_os_work_assigned'),
   WHATSAPP_WORK_EMPLOYEE_TEMPLATE: z.string().optional().default('work_os_new_work'),
   WHATSAPP_WORK_TEMPLATE_LANG: z.string().optional().default('en'),
+  // Sent to the assignee before the due time: {{1}} first name, {{2}} work id, {{3}} work, {{4}} due
+  WHATSAPP_WORK_REMINDER_TEMPLATE: z.string().optional().default('work_os_work_reminder'),
+  // Reminder for work from a voice note that has a due time (minutes before; 0 = none)
+  VOICE_REMINDER_MINUTES: z.coerce.number().int().min(0).max(10080).optional().default(120),
+  // 'false' stops this process from sending work reminders (e.g. a local server on the production database)
+  TASK_REMINDERS_ENABLED: z.string().optional().default('true'),
   // How long a voice note waits for the owner to name the employee
   VOICE_ASSIGNEE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).optional().default(30),
   // Used to resolve spoken dates/times ("tomorrow at 5") and to format due dates in messages

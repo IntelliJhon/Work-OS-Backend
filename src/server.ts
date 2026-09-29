@@ -6,6 +6,7 @@ import { startWorkers } from './jobs/workers';
 import { initializeSchedulers } from './jobs/schedulers';
 
 import { startGoogleSheetPolling } from './modules/complaints/complaints.controller';
+import { startTaskReminders } from './modules/calendar/task-reminders.service';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -14,6 +15,7 @@ const server = app.listen(env.PORT, async () => {
   startWorkers();
   await initializeSchedulers();
   startGoogleSheetPolling();
+  startTaskReminders();
 });
 
 // Initialize Socket.IO with the HTTP server

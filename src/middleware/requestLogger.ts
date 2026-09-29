@@ -11,6 +11,9 @@ export const requestIdMiddleware = (req: Request, res: Response, next: NextFunct
   next();
 };
 
+// Calendar links carry their only credential in the URL
+const redactUrl = (url: string | undefined) => url?.replace(/(\/api\/calendar\/)[^/?#]+\.ics/, '$1[REDACTED].ics');
+
 // Configured pino-http logger for Express
 export const requestLogger = pinoHttp({
   logger: pinoLogger,
@@ -27,10 +30,10 @@ export const requestLogger = pinoHttp({
     return 'info';
   },
   customSuccessMessage: (req: any, res) => {
-    return `${req.method} ${req.url} completed with status ${res.statusCode}`;
+    return `${req.method} ${redactUrl(req.url)} completed with status ${res.statusCode}`;
   },
   customErrorMessage: (req: any, res, err) => {
-    return `${req.method} ${req.url} failed with status ${res.statusCode}: ${err.message}`;
+    return `${req.method} ${redactUrl(req.url)} failed with status ${res.statusCode}: ${err.message}`;
   },
   // Don't log sensitive info from bodies/headers
   serializers: {
@@ -38,7 +41,7 @@ export const requestLogger = pinoHttp({
       const sanitizedReq = {
         id: req.id,
         method: req.method,
-        url: req.url,
+        url: redactUrl(req.url),
         headers: {
           ...req.headers,
           authorization: req.headers.authorization ? '[REDACTED]' : undefined,

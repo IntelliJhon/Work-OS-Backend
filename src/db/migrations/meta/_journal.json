@@ -232,6 +232,13 @@
       "when": 1790600000000,
       "tag": "0032_tenant_whatsapp_bots",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790700000000,
+      "tag": "0033_task_reminders_calendar",
+      "breakpoints": true
     }
   ]
 }

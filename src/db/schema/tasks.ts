@@ -22,6 +22,10 @@ export const tasks = pgTable('tasks', {
   customFields: jsonb('custom_fields').default({}),
   // Per-workspace work number shown as W-<n>. Assigned by the assign_task_number() DB trigger; never set by the app.
   taskNumber: integer('task_number'),
+  // Derived from customFields dueDate/dueTime/reminderMinutes (see modules/calendar/task-schedule.ts); never set by clients
+  dueAt: timestamp('due_at', { withTimezone: true }),
+  remindAt: timestamp('remind_at', { withTimezone: true }),
+  reminderSentAt: timestamp('reminder_sent_at', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

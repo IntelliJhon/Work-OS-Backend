@@ -12,6 +12,7 @@ import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 import { WebhookService } from '../../services/webhook.service';
 import { createTaskInTx } from './tasks.service';
+import { scheduleForUpdate } from '../calendar/task-schedule';
 import { voiceNotes } from '../../db/schema/voice_notes';
 import { emitToTenant } from '../voice-notes/voice-notes.controller';
 
@@ -93,8 +94,11 @@ export class TasksController {
           TaskOwnershipService.validateAssigneeUpdates(req.body, oldTask);
         }
 
-        // Filter updates based on access level
-        const allowedUpdates = TaskOwnershipService.filterAllowedUpdates(accessLevel, req.body, oldTask);
+        // Filter updates based on access level; due and reminder moments follow the custom fields
+        const allowedUpdates = scheduleForUpdate(
+          TaskOwnershipService.filterAllowedUpdates(accessLevel, req.body, oldTask),
+          oldTask,
+        );
 
         // If nothing is being updated, return unchanged
         if (Object.keys(allowedUpdates).length === 0) {

@@ -13,7 +13,8 @@ export interface TenantWhatsApp {
   /** Phone number ID of the bot that serves this workspace (default bot if none configured) */
   botId: string;
   businessPhone: string | null;
-  templates: { otp: string; owner: string; employee: string; lang: string; otpLang: string };
+  // reminder: same template name in every bot's WhatsApp account (no per-bot override)
+  templates: { otp: string; owner: string; employee: string; reminder: string; lang: string; otpLang: string };
 }
 
 export class WhatsAppBotError extends Error {
@@ -31,6 +32,7 @@ export class WhatsAppBotsService {
       otp: env.WHATSAPP_OTP_TEMPLATE,
       owner: env.WHATSAPP_WORK_OWNER_TEMPLATE,
       employee: env.WHATSAPP_WORK_EMPLOYEE_TEMPLATE,
+      reminder: env.WHATSAPP_WORK_REMINDER_TEMPLATE,
       lang: env.WHATSAPP_WORK_TEMPLATE_LANG,
       otpLang: env.WHATSAPP_OTP_TEMPLATE_LANG,
     };
@@ -45,6 +47,7 @@ export class WhatsAppBotsService {
         otp: bot.otpTemplate || defaults.otp,
         owner: bot.ownerTemplate || defaults.owner,
         employee: bot.employeeTemplate || defaults.employee,
+        reminder: defaults.reminder,
         lang: bot.templateLang || defaults.lang,
         otpLang: bot.templateLang || defaults.otpLang,
       },

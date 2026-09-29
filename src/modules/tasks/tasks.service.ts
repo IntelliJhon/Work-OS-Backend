@@ -3,6 +3,7 @@ import { AuditService } from '../../services/audit.service';
 import { NotificationEvents } from '../notifications/notifications.events';
 import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
+import { scheduleFromCustomFields } from '../calendar/task-schedule';
 
 export interface CreateTaskOptions {
   tenantId: string;
@@ -19,9 +20,12 @@ export interface CreateTaskOptions {
  */
 export async function createTaskInTx(tx: any, { tenantId, actorUserId, actorName, values, ipAddress }: CreateTaskOptions) {
   const completedAt = values.status === 'done' ? new Date() : null;
+  const { dueAt: _dueAt, remindAt: _remindAt, reminderSentAt: _sent, ...rest } = values;
   const [newTask] = await tx.insert(tasks).values({
     tenantId,
-    ...values,
+    ...rest,
+    // Due and reminder moments come from the custom fields only
+    ...scheduleFromCustomFields(values.customFields),
     completedAt,
   }).returning();
 

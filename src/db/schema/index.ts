@@ -26,3 +26,4 @@ export * from './subscription_expiry_alerts';
 
 export * from './voice_notes';
 export * from './tenant_whatsapp_bots';
+export * from './calendar_feeds';
