@@ -38,8 +38,12 @@ export interface TaskSchedule {
   remindAt: Date | null;
 }
 
+// When the chosen reminder time has already passed (work created or moved close to its due time),
+// the reminder goes this long before the due time instead; if that has passed too, there is none.
+export const LATE_REMINDER_MINUTES = 30;
+
 /** Due and reminder moments from a task's custom fields. A reminder needs a due time. */
-export function scheduleFromCustomFields(customFields: unknown): TaskSchedule {
+export function scheduleFromCustomFields(customFields: unknown, now: Date = new Date()): TaskSchedule {
   const cf = (customFields && typeof customFields === 'object' ? customFields : {}) as Record<string, unknown>;
   const dueDate = typeof cf.dueDate === 'string' && DATE_RE.test(cf.dueDate) ? cf.dueDate : null;
   const dueTime = typeof cf.dueTime === 'string' && TIME_RE.test(cf.dueTime) ? cf.dueTime : null;
@@ -47,31 +51,47 @@ export function scheduleFromCustomFields(customFields: unknown): TaskSchedule {
 
   const dueAt = zonedTimeToUtc(dueDate, dueTime);
   const minutes = Number(cf.reminderMinutes);
-  const remindAt = Number.isInteger(minutes) && minutes > 0 && minutes <= 7 * 24 * 60
-    ? new Date(dueAt.getTime() - minutes * 60_000)
-    : null;
+  if (!(Number.isInteger(minutes) && minutes > 0 && minutes <= 7 * 24 * 60)) return { dueAt, remindAt: null };
+
+  let remindAt: Date | null = new Date(dueAt.getTime() - minutes * 60_000);
+  if (remindAt <= now) {
+    const late = new Date(dueAt.getTime() - Math.min(minutes, LATE_REMINDER_MINUTES) * 60_000);
+    remindAt = late > now ? late : null;
+  }
   return { dueAt, remindAt };
 }
 
 const sameMoment = (a: Date | null | undefined, b: Date | null | undefined) =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
+const SCHEDULE_KEYS = ['dueDate', 'dueTime', 'reminderMinutes'] as const;
+const scheduleChanged = (next: unknown, prev: unknown) => {
+  const a = (next ?? {}) as Record<string, unknown>;
+  const b = (prev ?? {}) as Record<string, unknown>;
+  return SCHEDULE_KEYS.some((k) => a[k] !== b[k]);
+};
+
 /**
- * Schedule columns for a task update: recomputed when the custom fields change, and the reminder is
- * sent again when its moment or the assignee changes. Client-sent values for these columns are dropped.
+ * Schedule columns for a task update: recomputed only when the due date/time or the reminder choice
+ * changes (so an unrelated edit never moves or re-sends a reminder), and the reminder is sent again when
+ * its moment or the assignee changes. Client-sent values for these columns are dropped.
  */
 export function scheduleForUpdate(
   updates: Record<string, any>,
   oldTask: { customFields: unknown; assigneeId: string | null; remindAt: Date | null },
+  now: Date = new Date(),
 ): Record<string, any> {
   const { dueAt: _dueAt, remindAt: _remindAt, reminderSentAt: _sent, ...rest } = updates;
   if (rest.customFields === undefined && rest.assigneeId === undefined) return rest;
 
-  const schedule = rest.customFields !== undefined ? scheduleFromCustomFields(rest.customFields) : null;
-  const next: Record<string, any> = { ...rest, ...(schedule ?? {}) };
-  const remindAtChanged = schedule !== null && !sameMoment(schedule.remindAt, oldTask.remindAt);
+  const fieldsChanged = rest.customFields !== undefined && scheduleChanged(rest.customFields, oldTask.customFields);
   const assigneeChanged = rest.assigneeId !== undefined && rest.assigneeId !== oldTask.assigneeId;
-  if (remindAtChanged || assigneeChanged) next.reminderSentAt = null;
+  if (!fieldsChanged && !assigneeChanged) return rest;
+
+  // A new assignee gets the reminder by the same rule, from now on
+  const schedule = scheduleFromCustomFields(rest.customFields ?? oldTask.customFields, now);
+  const next: Record<string, any> = { ...rest, ...schedule };
+  if (assigneeChanged || !sameMoment(schedule.remindAt, oldTask.remindAt)) next.reminderSentAt = null;
   return next;
 }
 

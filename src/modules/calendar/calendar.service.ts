@@ -134,8 +134,9 @@ function taskEvent(task: typeof tasks.$inferSelect): string[] {
     // A timed due: a 30-minute slot starting at the due time
     const start = new Date(task.dueAt);
     lines.push(`DTSTART:${utcStamp(start)}`, `DTEND:${utcStamp(new Date(start.getTime() + 30 * 60_000))}`);
-    const minutes = Number(cf.reminderMinutes);
-    if (Number.isInteger(minutes) && minutes > 0) {
+    // The same moment as the WhatsApp reminder (which may be the 30-minute fallback)
+    const minutes = task.remindAt ? Math.round((start.getTime() - new Date(task.remindAt).getTime()) / 60_000) : 0;
+    if (minutes > 0) {
       lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(`Due: ${task.name}`)}`, `TRIGGER:-PT${minutes}M`, 'END:VALARM');
     }
   } else {
