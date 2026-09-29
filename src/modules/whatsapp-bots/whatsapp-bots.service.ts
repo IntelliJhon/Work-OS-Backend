@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { tenants } from '../../db/schema/tenants';
 import { tenantWhatsappBots } from '../../db/schema/tenant_whatsapp_bots';
@@ -105,6 +105,8 @@ export class WhatsAppBotsService {
       })
       .from(tenants)
       .leftJoin(tenantWhatsappBots, eq(tenantWhatsappBots.tenantId, tenants.id))
+      // Deleted workspaces are not managed any more
+      .where(isNull(tenants.deletedAt))
       .orderBy(asc(tenants.name));
 
     return {
