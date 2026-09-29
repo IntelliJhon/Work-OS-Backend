@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
+import { requireLeadsndeals } from '../../middleware/company.middleware';
 import { ClientEnquiriesController } from './client-enquiries.controller';
 
 const router = Router();
 
-router.use(authenticate);
+// Part of Clients: LeadsNDeals workspace only
+router.use(authenticate, requireLeadsndeals as any);
 
 router.get('/', ClientEnquiriesController.list);
 router.post('/', ClientEnquiriesController.create);

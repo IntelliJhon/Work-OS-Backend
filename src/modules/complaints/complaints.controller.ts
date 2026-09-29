@@ -4,6 +4,8 @@ import { db } from '../../db';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { WhatsAppService } from '../../services/whatsapp.service';
 import { getIoInstance } from '../../socket/socketServer';
+import { getTenantRoom } from '../../socket/tenantRooms';
+import { LEADSNDEALS_TENANT_ID } from '../../middleware/company.middleware';
 import { logger } from '../../config/logger';
 
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_COMPLAINTS_URL || 'https://script.google.com/macros/s/AKfycbwEIj1gZusldwBYtIx4WeiLE9vBpZgpYiDqUVLvytP4AgBdsfSIuvqHtUvkGOidqx3iCQ/exec';
@@ -189,13 +191,13 @@ export class ComplaintsController {
         });
       }
 
-      // Real-time broadcast via Socket.IO
+      // Real-time broadcast via Socket.IO, to the LeadsNDeals workspace only (complaints hold complainant details)
       try {
-        const io = getIoInstance();
+        const room = getIoInstance().to(getTenantRoom(LEADSNDEALS_TENANT_ID));
         for (const comp of newComplaints) {
-          io.emit('complaint_new', comp);
+          room.emit('complaint_new', comp);
         }
-        io.emit('complaints_updated', { count: newComplaints.length });
+        room.emit('complaints_updated', { count: newComplaints.length });
       } catch (err) {
         // Socket instance not initialized yet
       }
