@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { tenants } from '../../db/schema/tenants';
+import { tenantVoiceNumbers } from '../../db/schema/tenant_voice_numbers';
 import { voiceNotes } from '../../db/schema/voice_notes';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
@@ -35,15 +36,15 @@ export const requireIntegrationSecret = (req: Request, res: Response, next: Next
   return next();
 };
 
-/** The workspace whose verified voice number this is, or null. */
+/** The workspace this verified voice number belongs to, or null. userId: the member whose number it is. */
 async function findTenantByVoicePhone(phone: string) {
   const [tenant] = await db
-    .select({ id: tenants.id, name: tenants.name, userId: tenants.voicePhoneUserId })
-    .from(tenants)
+    .select({ id: tenants.id, name: tenants.name, userId: tenantVoiceNumbers.userId })
+    .from(tenantVoiceNumbers)
+    .innerJoin(tenants, eq(tenants.id, tenantVoiceNumbers.tenantId))
     .where(
       and(
-        eq(tenants.voicePhone, phone),
-        isNotNull(tenants.voicePhoneVerifiedAt),
+        eq(tenantVoiceNumbers.phone, phone),
         eq(tenants.isActive, true),
         isNull(tenants.deletedAt),
       ),

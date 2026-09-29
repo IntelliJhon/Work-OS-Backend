@@ -67,7 +67,8 @@ export class VoiceNotesController {
 
   static async removeNumber(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const data = await VoiceSettingsService.removeNumber(req.user!.tenantId);
+      // /settings/numbers/:phone removes one number; /settings removes all of them
+      const data = await VoiceSettingsService.removeNumber(req.user!.tenantId, req.params.phone as string | undefined);
       return res.json({ success: true, data });
     } catch (err) {
       return handleError(err, res, next);

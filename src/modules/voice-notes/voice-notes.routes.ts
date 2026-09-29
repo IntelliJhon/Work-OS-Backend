@@ -7,6 +7,7 @@ import { VoiceIntegrationController, requireIntegrationSecret } from './voice-in
 import {
   sendCodeSchema,
   verifyCodeSchema,
+  removeNumberSchema,
   listVoiceNotesSchema,
   updateVoiceNoteSchema,
   deleteVoiceNoteSchema,
@@ -32,6 +33,7 @@ voiceNotesRouter.get('/settings', requirePermissions([VOICE_PERMISSIONS.SETTINGS
 voiceNotesRouter.post('/settings/send-code', requirePermissions([VOICE_PERMISSIONS.SETTINGS_MANAGE]) as any, validateRequest(sendCodeSchema), VoiceNotesController.sendCode as any);
 voiceNotesRouter.post('/settings/verify', requirePermissions([VOICE_PERMISSIONS.SETTINGS_MANAGE]) as any, validateRequest(verifyCodeSchema), VoiceNotesController.verifyCode as any);
 voiceNotesRouter.delete('/settings', requirePermissions([VOICE_PERMISSIONS.SETTINGS_MANAGE]) as any, VoiceNotesController.removeNumber as any);
+voiceNotesRouter.delete('/settings/numbers/:phone', requirePermissions([VOICE_PERMISSIONS.SETTINGS_MANAGE]) as any, validateRequest(removeNumberSchema), VoiceNotesController.removeNumber as any);
 
 // Inbox
 voiceNotesRouter.get('/', requirePermissions([VOICE_PERMISSIONS.NOTES_READ]) as any, validateRequest(listVoiceNotesSchema), VoiceNotesController.list as any);

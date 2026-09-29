@@ -13,8 +13,8 @@ export const tenants = pgTable('tenants', {
   // Next per-workspace work number (W-1, W-2, ...). Maintained by the assign_task_number() trigger (migration 0029).
   nextTaskNumber: integer('next_task_number').default(1).notNull(),
 
-  // Voice notes: the single verified WhatsApp number allowed to send voice notes for this workspace.
-  // Only verified numbers occupy the unique slot, so an unverified entry can't block another workspace.
+  // Legacy (before migration 0034): the workspace's single verified voice number. Verified numbers are now in
+  // tenant_voice_numbers; these three columns are no longer read or written.
   voicePhone: varchar('voice_phone', { length: 20 }).unique(),
   voicePhoneVerifiedAt: timestamp('voice_phone_verified_at'),
   voicePhoneUserId: uuid('voice_phone_user_id'), // FK to users.id is defined in migration 0028 (avoids circular import)

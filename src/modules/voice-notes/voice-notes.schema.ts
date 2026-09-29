@@ -14,6 +14,11 @@ export const verifyCodeSchema = z.object({
   }),
 });
 
+export const removeNumberSchema = z.object({
+  // Digits with country code (a leading + is fine)
+  params: z.object({ phone: z.string().regex(/^\+?\d{8,20}$/) }),
+});
+
 // ---- Inbox ----
 export const listVoiceNotesSchema = z.object({
   query: z.object({

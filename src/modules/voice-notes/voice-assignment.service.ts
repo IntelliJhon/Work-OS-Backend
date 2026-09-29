@@ -2,6 +2,7 @@ import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import { db } from '../../db';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { tenants } from '../../db/schema/tenants';
+import { tenantVoiceNumbers } from '../../db/schema/tenant_voice_numbers';
 import { users } from '../../db/schema/users';
 import { voiceNotes } from '../../db/schema/voice_notes';
 import { matchMemberName } from '../../lib/names';
@@ -174,11 +175,19 @@ async function proposeDoer(note: VoiceNote, heard: string | null, members: Membe
 
 async function createAssignedTask(note: VoiceNote, member: Member, members: Member[]): Promise<AssignmentOutcome> {
   const [tenant] = await db
-    .select({ name: tenants.name, ownerUserId: tenants.voicePhoneUserId })
+    .select({ name: tenants.name })
     .from(tenants)
     .where(eq(tenants.id, note.tenantId))
     .limit(1);
-  const actorUserId = note.senderUserId ?? tenant?.ownerUserId ?? null;
+  // The sender: the member the voice number belongs to (set when the note arrived, or looked up now)
+  const [sender] = note.senderUserId
+    ? [{ userId: note.senderUserId }]
+    : await db
+        .select({ userId: tenantVoiceNumbers.userId })
+        .from(tenantVoiceNumbers)
+        .where(and(eq(tenantVoiceNumbers.phone, note.senderPhone), eq(tenantVoiceNumbers.tenantId, note.tenantId)))
+        .limit(1);
+  const actorUserId = sender?.userId ?? null;
   const { reviewerName, informedNames } = peopleOf(note, members);
 
   const result = await withTenant(note.tenantId, async (tx) => {
