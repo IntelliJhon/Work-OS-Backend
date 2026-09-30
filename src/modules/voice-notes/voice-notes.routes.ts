@@ -15,6 +15,7 @@ import {
   assignVoiceNoteSchema,
   voiceContextSchema,
   botStatusSchema,
+  workStatusQuerySchema,
 } from './voice-notes.schema';
 
 // Permission keys. Admin role bypasses all checks in requirePermissions.
@@ -45,4 +46,5 @@ export const integrationsRouter = Router();
 integrationsRouter.post('/voice-notes', requireIntegrationSecret, validateRequest(ingestVoiceNoteSchema), VoiceIntegrationController.ingest);
 integrationsRouter.post('/voice-notes/assign', requireIntegrationSecret, validateRequest(assignVoiceNoteSchema), VoiceIntegrationController.assign);
 integrationsRouter.post('/voice-notes/context', requireIntegrationSecret, validateRequest(voiceContextSchema), VoiceIntegrationController.context);
+integrationsRouter.post('/voice-notes/query', requireIntegrationSecret, validateRequest(workStatusQuerySchema), VoiceIntegrationController.query);
 integrationsRouter.post('/voice-notes/bot-status', requireIntegrationSecret, validateRequest(botStatusSchema), VoiceIntegrationController.botStatus);

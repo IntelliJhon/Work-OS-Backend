@@ -71,6 +71,21 @@ export const ingestVoiceNoteSchema = z.object({
 
 export type IngestVoiceNoteBody = z.infer<typeof ingestVoiceNoteSchema>['body'];
 
+export const workStatusQuerySchema = z.object({
+  body: z.object({
+    senderPhone: z.string().trim().min(8).max(25),
+    // What was asked: one work item, a person's work, or a workspace summary
+    queryType: z.enum(['work_id', 'person', 'today', 'overdue', 'pending']),
+    workNumber: z.coerce.number().int().positive().nullish(),
+    personName: z.string().trim().max(150).nullish(),
+    // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
+    botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
+    replyMode: z.enum(['whatsapp']).optional(),
+  }),
+});
+
+export type WorkStatusQueryBody = z.infer<typeof workStatusQuerySchema>['body'];
+
 export const assignVoiceNoteSchema = z.object({
   body: z.object({
     senderPhone: z.string().trim().min(8).max(25),

@@ -11,7 +11,8 @@ import { normalizePhone, maskPhone } from '../../lib/phone';
 import { emitToTenant } from './voice-notes.controller';
 import { VoiceAssignmentService, listMemberNames } from './voice-assignment.service';
 import { buildReply, sendReply, type ReplyContext } from './voice-replies';
-import type { AssignVoiceNoteBody, IngestVoiceNoteBody } from './voice-notes.schema';
+import type { AssignVoiceNoteBody, IngestVoiceNoteBody, WorkStatusQueryBody } from './voice-notes.schema';
+import { WorkStatusService } from './work-status.service';
 import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import type { WhatsAppSender } from '../../services/whatsapp.service';
 
@@ -203,6 +204,31 @@ export class VoiceIntegrationController {
       const { tenant } = found;
       const outcome = await VoiceAssignmentService.handleReply(tenant.id, body.reply, body.replyType, body.quiet === true);
       return { status: 200, payload: { success: true, workspace: tenant.name, ...outcome } };
+    });
+  }
+
+  /**
+   * POST /api/integrations/voice-notes/query  (called by n8n when Gemini reads the message as a question)
+   * Work-status questions from a registered number: one work item, a person's work, or today / overdue / pending.
+   * 200 { code: 'work_status', text } — the reply text (sent on WhatsApp with replyMode 'whatsapp').
+   */
+  static async query(req: Request, res: Response, next: NextFunction) {
+    const body = req.body as WorkStatusQueryBody;
+    const phone = normalizePhone(body.senderPhone);
+    if (!phone) {
+      return res.status(400).json({ error: 'Invalid senderPhone', code: 'invalid_phone' });
+    }
+    return run(res, next, body.replyMode === 'whatsapp' ? phone : null, body.botId, async () => {
+      const found = await tenantForBot(phone, body.botId);
+      if ('result' in found) return found.result;
+      const { tenant } = found;
+      const text = await WorkStatusService.answer(tenant.id, {
+        queryType: body.queryType,
+        workNumber: body.workNumber,
+        personName: body.personName,
+      });
+      logger.info({ tenantId: tenant.id, queryType: body.queryType }, '[VoiceIntegration] Work status answered');
+      return { status: 200, payload: { success: true, code: 'work_status', workspace: tenant.name, text } };
     });
   }
 
