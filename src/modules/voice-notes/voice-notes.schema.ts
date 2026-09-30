@@ -74,10 +74,14 @@ export type IngestVoiceNoteBody = z.infer<typeof ingestVoiceNoteSchema>['body'];
 export const workStatusQuerySchema = z.object({
   body: z.object({
     senderPhone: z.string().trim().min(8).max(25),
-    // What was asked: one work item, a person's work, or a workspace summary
-    queryType: z.enum(['work_id', 'person', 'today', 'overdue', 'pending']),
+    // 'search' = filter by the fields below; the others are the first version's fixed questions
+    queryType: z.enum(['work_id', 'person', 'today', 'overdue', 'pending', 'search']).optional().default('search'),
     workNumber: z.coerce.number().int().positive().nullish(),
     personName: z.string().trim().max(150).nullish(),
+    // Date range asked about ('YYYY-MM-DD', local to WORK_TIMEZONE); one day = the same date twice
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+    status: z.enum(['open', 'done', 'overdue', 'all']).nullish(),
     // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
     botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
     replyMode: z.enum(['whatsapp']).optional(),

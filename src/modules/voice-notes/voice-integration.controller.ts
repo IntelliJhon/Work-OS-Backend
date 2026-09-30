@@ -226,6 +226,9 @@ export class VoiceIntegrationController {
         queryType: body.queryType,
         workNumber: body.workNumber,
         personName: body.personName,
+        dateFrom: body.dateFrom,
+        dateTo: body.dateTo,
+        status: body.status,
       });
       logger.info({ tenantId: tenant.id, queryType: body.queryType }, '[VoiceIntegration] Work status answered');
       return { status: 200, payload: { success: true, code: 'work_status', workspace: tenant.name, text } };
