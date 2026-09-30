@@ -145,6 +145,7 @@ export class AttendanceService {
     const settings = await this.getSettings(tenantId);
     const { day, hhmm, weekday } = localParts(now);
     if (!settings.enabled) return { code: 'disabled' as const, created: false, day };
+    if (day < settings.startedOn) return { code: 'not_started' as const, created: false, day, startsOn: settings.startedOn };
 
     const [existing] = await db
       .select()

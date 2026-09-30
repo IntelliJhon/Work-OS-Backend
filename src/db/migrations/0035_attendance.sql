@@ -48,9 +48,10 @@ CREATE TABLE IF NOT EXISTS "attendance_holidays" (
   PRIMARY KEY ("tenant_id", "day")
 );--> statement-breakpoint
 
--- Every existing workspace starts counting attendance today (India date)
+-- Every existing workspace starts counting attendance the day after this migration (India date), so a
+-- deploy during the day doesn't mark everyone who opens Work OS that afternoon as absent
 INSERT INTO "attendance_settings" ("tenant_id", "started_on")
-SELECT "id", (now() AT TIME ZONE 'Asia/Kolkata')::date FROM "tenants"
+SELECT "id", (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 FROM "tenants"
 ON CONFLICT ("tenant_id") DO NOTHING;--> statement-breakpoint
 
 -- Project Managers can see everyone's attendance (correcting it stays admin-only)
