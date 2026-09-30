@@ -3,6 +3,18 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { env } from '../../config/env';
 import { AuthRepository } from './auth.repository';
+import { zonedTimeToUtc } from '../calendar/task-schedule';
+
+/** The next daily logout moment after `now` (DAILY_LOGOUT_TIME in WORK_TIMEZONE), or null if switched off. */
+export function nextDailyLogout(now: Date): Date | null {
+  const at = env.DAILY_LOGOUT_TIME;
+  if (!at || !/^([01]\d|2[0-3]):[0-5]\d$/.test(at)) return null;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: env.WORK_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const candidate = zonedTimeToUtc(today, at);
+  if (candidate > now) return candidate;
+  const [y, m, d] = today.split('-').map(Number);
+  return zonedTimeToUtc(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10), at);
+}
 
 export class AuthService {
   static generateAccessToken(user: any, role: any) {
@@ -23,6 +35,11 @@ export class AuthService {
   }
 
   static async generateRefreshToken(tx: any, user: any) {
+    // Sessions end at the daily logout time (DAILY_LOGOUT_TIME, local to WORK_TIMEZONE), so everyone logs in
+    // again each day and that login is the day's attendance check-in. Otherwise they last 7 days.
+    const weekLater = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const cutoff = nextDailyLogout(new Date());
+    const expiresAt = new Date(cutoff ? Math.min(cutoff.getTime(), weekLater) : weekLater);
     const rawToken = jwt.sign(
       {
         userId: user.id,
@@ -31,10 +48,9 @@ export class AuthService {
         email: user.email,
       },
       env.JWT_REFRESH_SECRET,
-      { expiresIn: env.JWT_REFRESH_EXPIRATION as any }
+      { expiresIn: cutoff ? Math.max(60, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : env.JWT_REFRESH_EXPIRATION as any }
     );
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     await AuthRepository.insertRefreshToken(tx, {
       tenantId: user.tenantId,
