@@ -249,6 +249,43 @@ export class InvitationsController {
     }
   }
 
+  /** Removes a revoked or expired invitation from the list (pending and accepted ones stay) */
+  static async remove(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const inviteId = req.params.id as string;
+      const now = new Date();
+
+      const outcome = await withTenant(tenantId, async (tx) => {
+        const [invite] = await tx
+          .select()
+          .from(invitations)
+          .where(and(eq(invitations.id, inviteId), eq(invitations.tenantId, tenantId)));
+        if (!invite) return 'not_found' as const;
+        if (invite.acceptedAt || (!invite.revokedAt && invite.expiresAt > now)) return 'not_closed' as const;
+
+        await tx.delete(invitations).where(and(eq(invitations.id, inviteId), eq(invitations.tenantId, tenantId)));
+        const { token: _, ...safeInvite } = invite;
+        await AuditService.logAction({
+          tenantId,
+          userId: req.user!.id,
+          action: 'DELETE',
+          tableName: 'invitations',
+          recordId: invite.id,
+          oldValue: safeInvite,
+          ipAddress: req.ip,
+        }, tx);
+        return 'removed' as const;
+      });
+
+      if (outcome === 'not_found') return res.status(404).json({ error: 'Invitation not found' });
+      if (outcome === 'not_closed') return res.status(400).json({ error: 'Only revoked or expired invitations can be removed. Revoke it first.' });
+      return res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async verify(req: Request, res: Response, next: NextFunction) {
     try {
       const token = req.params.token as string;

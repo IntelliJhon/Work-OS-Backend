@@ -18,3 +18,5 @@ invitationsRouter.get('/', requirePermissions(['workspace.members.read']), Invit
 invitationsRouter.post('/', requirePermissions(['workspace.members.invite']), validateRequest(createInviteSchema), InvitationsController.create);
 invitationsRouter.post('/:id/resend', requirePermissions(['workspace.members.invite']), InvitationsController.resend);
 invitationsRouter.post('/:id/revoke', requirePermissions(['workspace.members.invite']), InvitationsController.revoke);
+// Only revoked or expired invitations can be removed from the list
+invitationsRouter.delete('/:id', requirePermissions(['workspace.members.invite']), InvitationsController.remove);
