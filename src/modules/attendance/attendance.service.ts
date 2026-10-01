@@ -157,6 +157,23 @@ export class AttendanceService {
       .limit(1);
     const hasCoords = Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
       && Math.abs(location.latitude!) <= 90 && Math.abs(location.longitude!) <= 180;
+    if (existing?.status === 'leave' && existing.leaveHalf && !existing.checkInAt) {
+      // Half a day of leave: the check-in for the other half is kept with it (the day stays 'leave')
+      if (hhmm < settings.checkInFrom) return { code: 'too_early' as const, created: false, day, opensAt: settings.checkInFrom };
+      const [updated] = await db
+        .update(attendanceRecords)
+        .set({
+          checkInAt: now,
+          latitude: hasCoords ? location.latitude! : null,
+          longitude: hasCoords ? location.longitude! : null,
+          accuracyM: hasCoords && Number.isFinite(location.accuracy) ? location.accuracy! : null,
+          locationStatus: hasCoords ? 'ok' : location.status === 'denied' ? 'denied' : 'unavailable',
+          updatedAt: now,
+        })
+        .where(and(eq(attendanceRecords.id, existing.id), isNull(attendanceRecords.checkInAt)))
+        .returning();
+      return { code: 'recorded' as const, created: !!updated, day, record: updated ?? existing };
+    }
     if (existing) {
       // The app checks in without waiting for an unanswered location prompt; when the person allows it
       // shortly after, the location is added to that check-in.
@@ -304,8 +321,11 @@ export class AttendanceService {
           if (state === 'present' && record?.early) totals.early += 1;
           if (state === 'late') totals.late += 1;
           if (state === 'absent') totals.absent += 1;
-          if (state === 'leave') totals.leave += 1;
-          return { day, state, early: record?.early ?? false, checkInAt: record?.checkInAt ?? null, locationStatus: record?.locationStatus ?? null };
+          if (state === 'leave') totals.leave += record?.leaveHalf ? 0.5 : 1;
+          return {
+            day, state, early: record?.early ?? false, checkInAt: record?.checkInAt ?? null,
+            locationStatus: record?.locationStatus ?? null, leaveHalf: record?.leaveHalf ?? null,
+          };
         });
         return { userId: m.id, name: `${m.firstName} ${m.lastName}`.trim(), totals, days: perDay };
       }),
@@ -332,7 +352,7 @@ export class AttendanceService {
       .values({ tenantId, userId: input.userId, day: input.day, status: input.status, early, note: input.reason, correctedBy: actorId, correctedAt: now })
       .onConflictDoUpdate({
         target: [attendanceRecords.tenantId, attendanceRecords.userId, attendanceRecords.day],
-        set: { status: input.status, early, note: input.reason, correctedBy: actorId, correctedAt: now, updatedAt: now },
+        set: { status: input.status, early, leaveHalf: null, leaveRequestId: null, note: input.reason, correctedBy: actorId, correctedAt: now, updatedAt: now },
       })
       .returning();
     await AuditService.logAction({
@@ -362,7 +382,7 @@ export class AttendanceService {
         .values({ tenantId, userId: input.userId, day, status: 'leave', note: input.reason, correctedBy: actorId, correctedAt: now })
         .onConflictDoUpdate({
           target: [attendanceRecords.tenantId, attendanceRecords.userId, attendanceRecords.day],
-          set: { status: 'leave', early: false, note: input.reason, correctedBy: actorId, correctedAt: now, updatedAt: now },
+          set: { status: 'leave', early: false, leaveHalf: null, leaveRequestId: null, note: input.reason, correctedBy: actorId, correctedAt: now, updatedAt: now },
           // Only replace an admin entry or an absence, never a real check-in
           setWhere: sql`${attendanceRecords.checkInAt} is null or ${attendanceRecords.status} = 'absent'`,
         })
@@ -374,6 +394,63 @@ export class AttendanceService {
       newValue: { leave: { from: input.from, to: input.to, days: set, reason: input.reason } },
     });
     return { days: set };
+  }
+
+  /** The working days (not days off or holidays) from one day to another, at most about two months */
+  static async workingDays(tenantId: string, from: string, to: string): Promise<string[]> {
+    const [settings, holidayRows] = await Promise.all([this.getSettings(tenantId), this.holidaysBetween(tenantId, from, to)]);
+    const holidays = new Set(holidayRows.map((h) => h.day));
+    const days: string[] = [];
+    for (let d = from; d <= to && days.length <= 62; d = addDays(d, 1)) {
+      if (settings.workingDays.includes(weekdayOf(d)) && !holidays.has(d)) days.push(d);
+    }
+    return days;
+  }
+
+  /**
+   * Writes an approved leave request to attendance. Full days don't replace a real check-in (only an absence or
+   * an admin's entry); a half day keeps the check-in of the other half.
+   */
+  static async applyLeaveRequest(
+    tenantId: string,
+    actorId: string,
+    request: { id: string; userId: string; fromDay: string; toDay: string; halfDay: string | null; reason: string },
+  ) {
+    const now = new Date();
+    for (const day of await this.workingDays(tenantId, request.fromDay, request.toDay)) {
+      const values = {
+        tenantId, userId: request.userId, day, status: 'leave', early: false, leaveHalf: request.halfDay,
+        leaveRequestId: request.id, note: request.reason, correctedBy: actorId, correctedAt: now,
+      };
+      await db
+        .insert(attendanceRecords)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [attendanceRecords.tenantId, attendanceRecords.userId, attendanceRecords.day],
+          set: { status: 'leave', early: false, leaveHalf: request.halfDay, leaveRequestId: request.id, note: request.reason, correctedBy: actorId, correctedAt: now, updatedAt: now },
+          setWhere: request.halfDay ? undefined : sql`${attendanceRecords.checkInAt} is null or ${attendanceRecords.status} = 'absent'`,
+        });
+    }
+  }
+
+  /** Takes a cancelled request's leave back out of attendance: days with a check-in get their own status again */
+  static async removeLeaveRequest(tenantId: string, requestId: string) {
+    const settings = await this.getSettings(tenantId);
+    const rows = await db
+      .select()
+      .from(attendanceRecords)
+      .where(and(eq(attendanceRecords.tenantId, tenantId), eq(attendanceRecords.leaveRequestId, requestId)));
+    for (const row of rows) {
+      if (!row.checkInAt) {
+        await db.delete(attendanceRecords).where(eq(attendanceRecords.id, row.id));
+        continue;
+      }
+      const { status, early } = statusAt(localParts(row.checkInAt).hhmm, settings);
+      await db
+        .update(attendanceRecords)
+        .set({ status, early, leaveHalf: null, leaveRequestId: null, note: null, correctedBy: null, correctedAt: null, updatedAt: new Date() })
+        .where(eq(attendanceRecords.id, row.id));
+    }
   }
 
   static async addHoliday(tenantId: string, actorId: string, day: string, name: string) {

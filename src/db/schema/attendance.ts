@@ -1,6 +1,7 @@
 import { boolean, date, doublePrecision, index, pgTable, primaryKey, real, smallint, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { users } from './users';
+import { leaveRequests } from './leave';
 
 // Attendance (migration 0035). All days and times are local to WORK_TIMEZONE. No RLS: every query filters by
 // tenant_id from the signed-in user.
@@ -40,6 +41,10 @@ export const attendanceRecords = pgTable('attendance_records', {
   // ok | denied | unavailable (null for entries made by an admin)
   locationStatus: varchar('location_status', { length: 20 }),
   note: text('note'),
+  // Half a day of leave (first | second); the day's check-in is kept
+  leaveHalf: varchar('leave_half', { length: 10 }),
+  // Set when the leave came from an approved request (removed again if it is cancelled)
+  leaveRequestId: uuid('leave_request_id').references(() => leaveRequests.id, { onDelete: 'set null' }),
   correctedBy: uuid('corrected_by').references(() => users.id, { onDelete: 'set null' }),
   correctedAt: timestamp('corrected_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

@@ -35,6 +35,7 @@ import { voiceNotesRouter, integrationsRouter } from './modules/voice-notes/voic
 import { platformRouter } from './modules/whatsapp-bots/whatsapp-bots.routes';
 import { calendarRouter } from './modules/calendar/calendar.routes';
 import { attendanceRouter } from './modules/attendance/attendance.routes';
+import { leaveRouter } from './modules/leave/leave.routes';
 
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -98,6 +99,7 @@ app.use('/api/integrations', integrationsRouter);
 app.use('/api/platform', platformRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/attendance', attendanceRouter);
+app.use('/api/leave', leaveRouter);
 
 // Background Jobs Dashboard
 app.use('/admin/queues', serverAdapter.getRouter());

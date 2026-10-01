@@ -38,6 +38,12 @@ const envSchema = z.object({
   WHATSAPP_WORK_TEMPLATE_LANG: z.string().optional().default('en'),
   // Sent to the assignee before the due time: {{1}} first name, {{2}} work id, {{3}} work, {{4}} due
   WHATSAPP_WORK_REMINDER_TEMPLATE: z.string().optional().default('work_os_work_reminder'),
+  // Leave: to an approver {{1}} first name, {{2}} applicant, {{3}} dates, {{4}} reason;
+  // to the applicant {{1}} first name, {{2}} dates, {{3}} what happened
+  WHATSAPP_LEAVE_REQUEST_TEMPLATE: z.string().optional().default('work_os_leave_request'),
+  WHATSAPP_LEAVE_UPDATE_TEMPLATE: z.string().optional().default('work_os_leave_update'),
+  // A request the manager hasn't decided after this many hours goes to the Admins
+  LEAVE_ESCALATION_HOURS: z.coerce.number().min(1).max(720).optional().default(12),
   // Reminder for work from a voice note that has a due time (minutes before; 0 = none)
   VOICE_REMINDER_MINUTES: z.coerce.number().int().min(0).max(10080).optional().default(120),
   // Every session ends at this local time (WORK_TIMEZONE), so the next day starts with a login = attendance

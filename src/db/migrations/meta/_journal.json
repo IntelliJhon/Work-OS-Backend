@@ -253,6 +253,13 @@
       "when": 1790900000000,
       "tag": "0035_attendance",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0036_leave",
+      "breakpoints": true
     }
   ]
 }

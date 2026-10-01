@@ -29,3 +29,4 @@ export * from './tenant_whatsapp_bots';
 export * from './calendar_feeds';
 export * from './tenant_voice_numbers';
 export * from './attendance';
+export * from './leave';

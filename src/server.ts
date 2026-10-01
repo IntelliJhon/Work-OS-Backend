@@ -7,6 +7,7 @@ import { initializeSchedulers } from './jobs/schedulers';
 
 import { startGoogleSheetPolling } from './modules/complaints/complaints.controller';
 import { startTaskReminders } from './modules/calendar/task-reminders.service';
+import { startLeaveEscalation } from './modules/leave/leave.service';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -16,6 +17,7 @@ const server = app.listen(env.PORT, async () => {
   await initializeSchedulers();
   startGoogleSheetPolling();
   startTaskReminders();
+  startLeaveEscalation();
 });
 
 // Initialize Socket.IO with the HTTP server

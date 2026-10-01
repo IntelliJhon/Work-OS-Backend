@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar, unique, index, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, unique, index, boolean, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { roles } from './roles';
 
@@ -13,6 +13,8 @@ export const users = pgTable('users', {
   twoFaEnabled: boolean('two_fa_enabled').default(false).notNull(),
   // WhatsApp number (digits-only international format) used for work notifications
   phone: varchar('phone', { length: 20 }),
+  // The person who approves this member's leave first (migration 0036); null = any Project Manager
+  reportsTo: uuid('reports_to').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
