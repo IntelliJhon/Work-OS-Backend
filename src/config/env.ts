@@ -57,8 +57,6 @@ const envSchema = z.object({
   WORK_TIMEZONE: z.string().optional().default('Asia/Kolkata'),
   // 32-byte key (64 hex chars) for secrets stored in the database, e.g. workspaces' WhatsApp tokens
   SECRETS_ENCRYPTION_KEY: z.string().optional(),
-  // Comma-separated emails of platform admins (can manage every workspace's WhatsApp bot)
-  PLATFORM_ADMIN_EMAILS: z.string().optional().default(''),
 });
 
 const _env = envSchema.safeParse(process.env);

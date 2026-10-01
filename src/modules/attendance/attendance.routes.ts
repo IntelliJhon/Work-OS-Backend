@@ -3,12 +3,16 @@ import { z, ZodError } from 'zod';
 import { authenticate, AuthRequest } from '../../middleware/auth.middleware';
 import { requirePermissions } from '../../middleware/rbac.middleware';
 import { AttendanceError, AttendanceService, isRealDay, localParts } from './attendance.service';
+import { checkSection, SectionsService } from '../sections/sections.service';
+import { allows, roleAccess } from '../sections/role-access';
 
 export const ATTENDANCE_PERMISSIONS = {
   // See everyone's attendance (Admins; Project Managers by default)
   READ: 'attendance.read',
   // Correct entries, set leave and holidays, change the rules (Admins)
   MANAGE: 'attendance.manage',
+  // Checks in and is counted (everyone by default; a role without it is not counted)
+  USE: 'attendance.use',
 } as const;
 
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -56,14 +60,25 @@ const handle = (fn: Handler) => (async (req: AuthRequest, res: Response, next: N
 // POST /api/attendance/check-in - the day's first check-in (the app calls it on every visit; idempotent)
 attendanceRouter.post('/check-in', handle(async (req, res) => {
   const body = checkInSchema.parse(req.body ?? {});
+  // Not counted: the workspace has Attendance off, or the person's role doesn't use it
+  if (!(await SectionsService.isEnabled(req.user!.tenantId, 'attendance'))
+    || !allows(await roleAccess(req.user!.tenantId, req.user!.roleId), ATTENDANCE_PERMISSIONS.USE)) {
+    return res.json({ success: true, code: 'disabled', created: false, day: localParts(new Date()).day });
+  }
   const result = await AttendanceService.checkIn(req.user!.tenantId, req.user!.id, {
     latitude: body.latitude, longitude: body.longitude, accuracy: body.accuracy, status: body.locationStatus,
   });
   res.json({ success: true, ...result });
 }));
 
+// Everything else needs the section on
+attendanceRouter.use(checkSection('attendance') as any);
+
 // GET /api/attendance/me?month=YYYY-MM - the signed-in user's own month
 attendanceRouter.get('/me', handle(async (req, res) => {
+  if (!allows(await roleAccess(req.user!.tenantId, req.user!.roleId), ATTENDANCE_PERMISSIONS.USE)) {
+    return res.status(403).json({ error: 'Attendance is not used for your role', code: 'not_counted' });
+  }
   const m = month.parse(req.query.month ?? localParts(new Date()).day.slice(0, 7));
   const data = await AttendanceService.month(req.user!.tenantId, m, req.user!.id);
   res.json({ success: true, data });

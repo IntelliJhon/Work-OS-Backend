@@ -3,6 +3,7 @@ import { authenticate, AuthRequest } from '../../middleware/auth.middleware';
 import { isEncryptionConfigured } from '../../lib/crypto';
 import { logger } from '../../config/logger';
 import { CalendarService, FEED_TOKEN_RE } from './calendar.service';
+import { checkSection } from '../sections/sections.service';
 
 export const calendarRouter = Router();
 
@@ -10,7 +11,7 @@ const feedUnavailable = (res: Response) =>
   res.status(503).json({ error: 'Calendar links are not configured on this server', code: 'not_configured' });
 
 // GET /api/calendar/feed - the signed-in user's private calendar link token
-calendarRouter.get('/feed', authenticate as any, (async (req: AuthRequest, res: Response, next: NextFunction) => {
+calendarRouter.get('/feed', authenticate as any, checkSection('calendar') as any, (async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!isEncryptionConfigured()) return feedUnavailable(res);
     const token = await CalendarService.getFeedToken(req.user!.tenantId, req.user!.id);
@@ -21,7 +22,7 @@ calendarRouter.get('/feed', authenticate as any, (async (req: AuthRequest, res: 
 }) as any);
 
 // POST /api/calendar/feed/reset - a new link; the old one stops working
-calendarRouter.post('/feed/reset', authenticate as any, (async (req: AuthRequest, res: Response, next: NextFunction) => {
+calendarRouter.post('/feed/reset', authenticate as any, checkSection('calendar') as any, (async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!isEncryptionConfigured()) return feedUnavailable(res);
     const token = await CalendarService.resetFeedToken(req.user!.tenantId, req.user!.id);

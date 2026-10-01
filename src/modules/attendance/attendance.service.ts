@@ -2,6 +2,7 @@ import { and, asc, between, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { attendanceHolidays, attendanceRecords, attendanceSettings } from '../../db/schema/attendance';
 import { users } from '../../db/schema/users';
+import { roles } from '../../db/schema/roles';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { AuditService } from '../../services/audit.service';
 import { env } from '../../config/env';
@@ -232,15 +233,22 @@ export class AttendanceService {
     return { code: 'recorded' as const, created: true, day, record: created };
   }
 
-  /** Members counted on a day (not deleted, joined on or before it) */
+  /** Members counted (not deleted; their role uses attendance). Days before they joined are not counted. */
   private static async members(tenantId: string) {
-    return withTenant<{ id: string; firstName: string; lastName: string; email: string; createdAt: Date }[]>(tenantId, (tx) =>
+    const rows = await withTenant<{ id: string; firstName: string; lastName: string; email: string; createdAt: Date; roleName: string; permissions: Record<string, boolean> }[]>(tenantId, (tx) =>
       tx
-        .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email, createdAt: users.createdAt })
+        .select({
+          id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email, createdAt: users.createdAt,
+          roleName: roles.name, permissions: roles.permissions,
+        })
         .from(users)
+        .innerJoin(roles, eq(roles.id, users.roleId))
         .where(and(eq(users.tenantId, tenantId), isNull(users.deletedAt)))
         .orderBy(asc(users.firstName), asc(users.lastName)),
     );
+    return rows
+      .filter((m) => m.roleName === 'Admin' || m.permissions?.admin === true || m.permissions?.['attendance.use'] === true)
+      .map(({ roleName: _r, permissions: _p, ...m }) => m);
   }
 
   /** What a person's day is: their record, or what the calendar implies */

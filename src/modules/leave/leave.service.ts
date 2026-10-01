@@ -43,6 +43,8 @@ interface Member {
   roleName: string;
   tier: Tier;
   canSeeAll: boolean;
+  /** Role has leave.use (Admins always) */
+  canApply: boolean;
 }
 
 const PENDING: LeaveStatus[] = ['pending_manager', 'pending_admin'];
@@ -91,6 +93,7 @@ export class LeaveService {
       return {
         id: r.id, firstName: r.firstName, lastName: r.lastName, phone: r.phone, reportsTo: r.reportsTo, roleName: r.roleName, tier,
         canSeeAll: tier !== 'employee' || permissions['attendance.read'] === true,
+        canApply: tier === 'admin' || permissions['leave.use'] === true,
       };
     });
   }
@@ -148,6 +151,7 @@ export class LeaveService {
 
     const members = await this.members(tenantId);
     const me = this.member(members, userId);
+    if (!me.canApply) throw new LeaveError(403, 'not_allowed', 'Your role cannot apply for leave here');
     const others = members.filter((m) => m.id !== userId);
     const manager = me.reportsTo ? others.find((m) => m.id === me.reportsTo) : undefined;
     const hasManagers = others.some((m) => m.tier === 'manager');

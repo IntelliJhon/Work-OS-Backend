@@ -12,6 +12,7 @@ import { formatDueLabel } from './task-schedule';
 import { maskPhone } from '../../lib/phone';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { SectionsService } from '../sections/sections.service';
 
 /**
  * Sends each task's reminder once, at tasks.remind_at: a Work OS notification and a WhatsApp template
@@ -91,6 +92,7 @@ export async function sendDueReminders(now: Date = new Date()): Promise<number> 
   let total = 0;
   for (const { id } of active) {
     try {
+      if (!(await SectionsService.isEnabled(id, 'tasks'))) continue;
       total += await sendTenantReminders(id, now);
     } catch (err) {
       logger.error({ err, tenantId: id }, '[TaskReminders] Sending reminders failed for tenant');

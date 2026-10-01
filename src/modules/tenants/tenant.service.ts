@@ -38,7 +38,7 @@ export class TenantService {
       const [adminRole] = await tx.insert(roles).values({
         tenantId: tenant.id,
         name: 'Tenant Admin',
-        permissions: { "project.create": true, "task.create": true, "user.invite": true, "admin": true }
+        permissions: { "project.create": true, "task.create": true, "user.invite": true, "admin": true, "attendance.use": true, "leave.use": true }
       }).returning();
 
       await tx.insert(roles).values([
@@ -55,12 +55,14 @@ export class TenantService {
             "voice_notes.read": true,
             "voice_notes.update": true,
             "attendance.read": true,
-            "leave.approve": true
+            "leave.approve": true,
+            "attendance.use": true,
+            "leave.use": true
           }
         },
-        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true } },
-        { tenantId: tenant.id, name: 'Developer', permissions: { "project.read": true, "task.read": true, "task.create": true, "task.update": true, "comment.create": true } },
-        { tenantId: tenant.id, name: 'Viewer', permissions: { "project.read": true, "task.read": true } },
+        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true, "attendance.use": true, "leave.use": true } },
+        { tenantId: tenant.id, name: 'Developer', permissions: { "project.read": true, "task.read": true, "task.create": true, "task.update": true, "comment.create": true, "attendance.use": true, "leave.use": true } },
+        { tenantId: tenant.id, name: 'Viewer', permissions: { "project.read": true, "task.read": true, "attendance.use": true, "leave.use": true } },
       ]);
 
       // 3. Create Admin User

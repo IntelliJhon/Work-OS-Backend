@@ -10,6 +10,7 @@ import { decryptSecret, encryptSecret } from '../../lib/crypto';
 import { env } from '../../config/env';
 import { formatWorkId } from '../tasks/tasks.service';
 import { formatDueLabel } from './task-schedule';
+import { SectionsService } from '../sections/sections.service';
 
 /**
  * Personal calendar feeds (iCalendar). Each user gets a private link to their assigned work, which they add
@@ -53,6 +54,7 @@ export class CalendarService {
       .where(and(eq(tenants.id, feed.tenantId), eq(tenants.isActive, true), isNull(tenants.deletedAt)))
       .limit(1);
     if (!tenant) return null;
+    if (!(await SectionsService.isEnabled(feed.tenantId, 'calendar'))) return null;
 
     const work = await withTenant(feed.tenantId, async (tx) => {
       const [user] = await tx

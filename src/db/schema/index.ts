@@ -30,3 +30,4 @@ export * from './calendar_feeds';
 export * from './tenant_voice_numbers';
 export * from './attendance';
 export * from './leave';
+export * from './platform_admins';

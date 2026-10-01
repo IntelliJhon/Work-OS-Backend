@@ -21,6 +21,7 @@ export type ReplyContext =
   | { code: 'created'; status: string }
   | { code: 'number_not_registered' }
   | { code: 'bot_not_registered' }
+  | { code: 'section_disabled' }
   | { code: 'work_status'; text: string }
   | { code: 'wrong_bot'; businessPhone: string | null; ownBot: boolean }
   | { code: 'duplicate' | 'already_assigned' }
@@ -89,6 +90,8 @@ export function buildReply(ctx: ReplyContext, workspace?: string): string | null
       return "This WhatsApp number isn't registered with Work OS. Ask your workspace admin to add it under Settings → Voice Notes.";
     case 'work_status':
       return ctx.text;
+    case 'section_disabled':
+      return `Voice notes are turned off for ${workspace ? `the ${workspace} workspace` : 'your workspace'} in Work OS. Please ask your Work OS admin.`;
     case 'bot_not_registered':
       return 'This bot is not registered with Work OS.';
     case 'error':

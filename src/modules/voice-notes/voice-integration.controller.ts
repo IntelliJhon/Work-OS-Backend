@@ -15,6 +15,7 @@ import type { AssignVoiceNoteBody, IngestVoiceNoteBody, WorkStatusQueryBody } fr
 import { WorkStatusService } from './work-status.service';
 import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import type { WhatsAppSender } from '../../services/whatsapp.service';
+import { SectionsService } from '../sections/sections.service';
 
 /** Constant-time secret comparison (hashing first makes lengths equal). */
 const secretMatches = (provided: unknown, expected: string) => {
@@ -97,6 +98,10 @@ async function tenantForBot(phone: string, botId: string | null | undefined): Pr
 > {
   const tenant = await findTenantByVoicePhone(phone);
   if (!tenant) return { result: notRegistered(phone) };
+  if (!(await SectionsService.isEnabled(tenant.id, 'voice_notes'))) {
+    logger.info({ tenantId: tenant.id }, '[VoiceIntegration] Voice notes are switched off for this workspace');
+    return { result: { status: 403, payload: { code: 'section_disabled', workspace: tenant.name, error: 'Voice notes are turned off for this workspace' } } };
+  }
   const wrong = await WhatsAppBotsService.wrongBot(tenant.id, botId);
   if (wrong) {
     logger.info({ tenantId: tenant.id, botId }, '[VoiceIntegration] Message came through another workspace bot');

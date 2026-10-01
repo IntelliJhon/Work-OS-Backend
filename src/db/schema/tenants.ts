@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar, boolean, uniqueIndex, integer } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, boolean, uniqueIndex, integer, jsonb } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -12,6 +12,10 @@ export const tenants = pgTable('tenants', {
 
   // Next per-workspace work number (W-1, W-2, ...). Maintained by the assign_task_number() trigger (migration 0029).
   nextTaskNumber: integer('next_task_number').default(1).notNull(),
+
+  // Sections switched on or off by a platform admin (migration 0037); missing keys use the defaults in
+  // modules/sections/sections.service.ts
+  sections: jsonb('sections').$type<Record<string, boolean>>().default({}).notNull(),
 
   // Legacy (before migration 0034): the workspace's single verified voice number. Verified numbers are now in
   // tenant_voice_numbers; these three columns are no longer read or written.

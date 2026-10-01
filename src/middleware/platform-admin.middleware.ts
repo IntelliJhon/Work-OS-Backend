@@ -1,22 +1,17 @@
 import { Response, NextFunction } from 'express';
 import { eq } from 'drizzle-orm';
 import { AuthRequest } from './auth.middleware';
-import { withTenant } from './tenant.middleware';
-import { users } from '../db/schema/users';
-import { env } from '../config/env';
+import { db } from '../db';
+import { platformAdmins } from '../db/schema/platform_admins';
 
-const adminEmails = () =>
-  env.PLATFORM_ADMIN_EMAILS.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
-
-/** Whether the signed-in user is a platform admin (email listed in PLATFORM_ADMIN_EMAILS). */
+/**
+ * Whether the signed-in account is a platform admin (listed in platform_admins by user id). The id comes from the
+ * signed access token; matching on email instead would let anyone register a workspace with an admin's address.
+ */
 export async function isPlatformAdmin(req: AuthRequest): Promise<boolean> {
-  const allowed = adminEmails();
-  if (!req.user || allowed.length === 0) return false;
-  // The access token carries no email; users has row-level security, so read it in the tenant context
-  const [user] = await withTenant<{ email: string }[]>(req.user.tenantId, (tx) =>
-    tx.select({ email: users.email }).from(users).where(eq(users.id, req.user!.id)).limit(1),
-  );
-  return !!user && allowed.includes(user.email.toLowerCase());
+  if (!req.user) return false;
+  const [row] = await db.select({ userId: platformAdmins.userId }).from(platformAdmins).where(eq(platformAdmins.userId, req.user.id)).limit(1);
+  return !!row;
 }
 
 /** Platform-wide administration (all workspaces). Use after authenticate. */
