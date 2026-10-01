@@ -1,16 +1,17 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { users } from '../../db/schema/users';
 import { roles } from '../../db/schema/roles';
 import { refreshTokens } from '../../db/schema/auth';
 
 export class AuthRepository {
   static async findUserByEmail(tx: any, email: string) {
-    const records = await tx.select().from(users).where(eq(users.email, email)).limit(1);
+    // Removed members (deleted_at set) can't sign in
+    const records = await tx.select().from(users).where(and(eq(users.email, email), isNull(users.deletedAt))).limit(1);
     return records[0];
   }
 
   static async findUserById(tx: any, userId: string) {
-    const records = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
+    const records = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.deletedAt))).limit(1);
     return records[0];
   }
 

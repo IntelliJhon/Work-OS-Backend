@@ -4,7 +4,7 @@ import { users } from '../../db/schema/users';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { AuditService } from '../../services/audit.service';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 import { getIoInstance } from '../../socket/socketServer';
 import { getTenantRoom } from '../../socket/tenantRooms';
 
@@ -69,7 +69,7 @@ export class RolesController {
             userCount: sql<number>`count(${users.id})::int`,
           })
           .from(roles)
-          .leftJoin(users, eq(roles.id, users.roleId))
+          .leftJoin(users, and(eq(roles.id, users.roleId), isNull(users.deletedAt)))
           .where(eq(roles.tenantId, tenantId))
           .groupBy(roles.id);
         return listWithCount;
@@ -112,7 +112,7 @@ export class RolesController {
           const admins = await tx
             .select()
             .from(users)
-            .where(and(eq(users.roleId, roleId), eq(users.tenantId, tenantId)));
+            .where(and(eq(users.roleId, roleId), eq(users.tenantId, tenantId), isNull(users.deletedAt)));
           if (admins.length > 0) {
             throw new Error('Cannot remove admin permissions from Tenant Admin role while it is active');
           }
@@ -162,7 +162,7 @@ export class RolesController {
         }
 
         // Check if any user is currently assigned this role
-        const [assignedUser] = await tx.select().from(users).where(and(eq(users.roleId, roleId), eq(users.tenantId, tenantId))).limit(1);
+        const [assignedUser] = await tx.select().from(users).where(and(eq(users.roleId, roleId), eq(users.tenantId, tenantId), isNull(users.deletedAt))).limit(1);
         if (assignedUser) {
           throw new Error('Cannot delete role because it is currently assigned to users');
         }

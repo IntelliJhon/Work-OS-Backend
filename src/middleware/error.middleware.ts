@@ -24,14 +24,28 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   }
 
   const rawMessage = err.message || '';
+  // Postgres refused the change (a record still in use, a duplicate, a missing value): not a connection problem
+  const pgCode: string | undefined = err.code || err.cause?.code;
+  if (pgCode && /^23/.test(pgCode)) {
+    logger.warn({ code: pgCode, detail: err.cause?.detail || err.detail, constraint: err.cause?.constraint || err.constraint }, 'Database refused a change');
+    const message = pgCode === '23505'
+      ? 'This already exists.'
+      : pgCode === '23503'
+        ? 'This is still used by other records, so it cannot be removed or changed.'
+        : 'The change could not be saved because some information is missing or invalid.';
+    return res.status(409).json({ error: message, message, code: 'constraint_violation' });
+  }
   const isDbOrNetworkError =
-    rawMessage.includes('Failed query:') ||
     rawMessage.includes('fetch failed') ||
     rawMessage.includes('ENOTFOUND') ||
     rawMessage.includes('ECONNREFUSED') ||
     rawMessage.includes('ETIMEDOUT') ||
-    rawMessage.toLowerCase().includes('select "') ||
     rawMessage.toLowerCase().includes('database');
+
+  // Any other failed query: don't show SQL to the user
+  if (!isDbOrNetworkError && (rawMessage.includes('Failed query:') || rawMessage.toLowerCase().includes('select "'))) {
+    return res.status(500).json({ error: 'Something went wrong. Please try again.', message: 'Something went wrong. Please try again.' });
+  }
 
   if (isDbOrNetworkError) {
     return res.status(503).json({

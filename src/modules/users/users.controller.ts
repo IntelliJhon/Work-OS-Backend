@@ -4,7 +4,10 @@ import { roles } from '../../db/schema/roles';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { AuditService } from '../../services/audit.service';
-import { eq, and, or, ilike, sql } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, isNull, ne } from 'drizzle-orm';
+import { refreshTokens } from '../../db/schema/auth';
+import { leaveRequests } from '../../db/schema/leave';
+import { db } from '../../db';
 import bcrypt from 'bcrypt';
 import { getIoInstance } from '../../socket/socketServer';
 import { getTenantRoom } from '../../socket/tenantRooms';
@@ -59,7 +62,7 @@ export class UsersController {
       const canSeePhones = req.user!.role === 'Admin' || perms['admin'] === true || perms['workspace.members.read'] === true;
 
       const result = await withTenant(tenantId, async (tx) => {
-        let conditions = eq(users.tenantId, tenantId);
+        let conditions = and(eq(users.tenantId, tenantId), isNull(users.deletedAt)) as any;
 
         if (search) {
           conditions = and(
@@ -176,14 +179,29 @@ export class UsersController {
       const tenantId = req.user!.tenantId;
       const userId = req.params.id as string;
 
-      await withTenant(tenantId, async (tx) => {
-        const [oldUser] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
-        
-        if (!oldUser) {
-          throw new Error('User not found');
-        }
+      if (userId === req.user!.id) {
+        return res.status(400).json({ error: 'You cannot remove yourself from the workspace' });
+      }
 
-        await tx.delete(users).where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
+      // A member can't be erased: their work, comments and the security log keep pointing to them. Removing
+      // deactivates them instead: hidden everywhere, signed out, and their email and number are free again.
+      const now = new Date();
+      const found = await withTenant(tenantId, async (tx) => {
+        const [oldUser] = await tx
+          .select()
+          .from(users)
+          .where(and(eq(users.id, userId), eq(users.tenantId, tenantId), isNull(users.deletedAt)));
+        if (!oldUser) return null;
+
+        await tx
+          .update(users)
+          .set({ deletedAt: now, updatedAt: now, phone: null, reportsTo: null, email: `removed-${now.getTime()}+${oldUser.email}`.slice(0, 255) })
+          .where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
+        // Nobody reports to them any more
+        await tx
+          .update(users)
+          .set({ reportsTo: null })
+          .where(and(eq(users.tenantId, tenantId), eq(users.reportsTo, userId), ne(users.id, userId)));
 
         const { passwordHash: _, ...safeOldUser } = oldUser;
 
@@ -196,9 +214,24 @@ export class UsersController {
           oldValue: safeOldUser,
           ipAddress: req.ip,
         }, tx);
+        return oldUser;
       });
+      if (!found) return res.status(404).json({ error: 'This member was not found (they may already be removed)' });
 
-      getIoInstance().to(getTenantRoom(tenantId)).emit('member_deleted', { userId });
+      // Sign them out everywhere and withdraw leave that is still waiting for a decision
+      await withTenant(tenantId, (tx) =>
+        tx.update(refreshTokens).set({ revokedAt: now }).where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt))),
+      );
+      await db
+        .update(leaveRequests)
+        .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+        .where(and(eq(leaveRequests.tenantId, tenantId), eq(leaveRequests.userId, userId), sql`${leaveRequests.status} in ('pending_manager', 'pending_admin')`));
+
+      try {
+        getIoInstance().to(getTenantRoom(tenantId)).emit('member_deleted', { userId });
+      } catch {
+        // Live update only; the removal is done
+      }
 
       return res.status(204).send();
     } catch (error) {
