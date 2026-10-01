@@ -19,6 +19,10 @@ export interface WhatsAppSender {
   phoneNumberId: string;
 }
 
+/** A template variable as Meta accepts it: no newlines/tabs or long runs of spaces, at most 300 characters */
+const flattenParam = (value: unknown) =>
+  String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 300) || '-';
+
 export class WhatsAppService {
   private static readonly REQUEST_TIMEOUT_MS = 10_000;
 
@@ -376,6 +380,28 @@ export class WhatsAppService {
       text: String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 300) || '-',
     }));
     return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [{ type: 'body', parameters }], sender);
+  }
+
+  /**
+   * A template with body variables and a website button whose URL ends in a variable ("Dynamic" URL in WAAU/Meta),
+   * e.g. https://…/invite/accept/{{1}} with buttonParam = the token.
+   */
+  static async sendBodyAndLinkTemplate(
+    recipientPhone: string,
+    templateName: string,
+    languageCode: string,
+    bodyParams: string[],
+    buttonParam: string,
+    sender?: WhatsAppSender,
+  ): Promise<{ success: boolean; error?: string }> {
+    const parameters = bodyParams.map((value) => ({
+      type: 'text',
+      text: flattenParam(value),
+    }));
+    return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [
+      { type: 'body', parameters },
+      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: buttonParam }] },
+    ], sender);
   }
 
   /**

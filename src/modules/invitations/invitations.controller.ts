@@ -8,20 +8,58 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { AuditService } from '../../services/audit.service';
 import { AuthService } from '../auth/auth.service';
-import { normalizePhone } from '../../lib/phone';
+import { maskPhone, normalizePhone } from '../../lib/phone';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import crypto from 'crypto';
+import { WhatsAppService } from '../../services/whatsapp.service';
+import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
+import { env } from '../../config/env';
+import { logger } from '../../config/logger';
 import bcrypt from 'bcrypt';
+
+/**
+ * Sends the invitation link on WhatsApp through the workspace's bot: template WHATSAPP_INVITE_TEMPLATE with
+ * {{1}} who invited, {{2}} workspace, {{3}} role, and a website button whose dynamic URL ends in the token.
+ */
+async function sendInviteOnWhatsApp(
+  tenantId: string,
+  inviterId: string,
+  invite: { phone: string | null; token: string; roleId: string },
+): Promise<{ sent: boolean; error?: string }> {
+  if (!invite.phone) return { sent: false, error: 'No WhatsApp number on this invitation' };
+  try {
+    const { inviter, role } = await withTenant(tenantId, async (tx) => {
+      const [u] = await tx.select({ firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.id, inviterId)).limit(1);
+      const [r] = await tx.select({ name: roles.name }).from(roles).where(eq(roles.id, invite.roleId)).limit(1);
+      return { inviter: u, role: r };
+    });
+    const [tenant] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const wa = await WhatsAppBotsService.forTenant(tenantId);
+    const sent = await WhatsAppService.sendBodyAndLinkTemplate(
+      invite.phone,
+      env.WHATSAPP_INVITE_TEMPLATE,
+      wa.templates.lang,
+      [inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : 'Your admin', tenant?.name ?? 'your workspace', role?.name ?? 'Member'],
+      invite.token,
+      wa.sender,
+    );
+    if (!sent.success) logger.warn({ tenantId, to: maskPhone(invite.phone), error: sent.error }, '[Invitations] WhatsApp invitation failed');
+    return sent.success ? { sent: true } : { sent: false, error: 'WhatsApp could not deliver the invitation' };
+  } catch (err) {
+    logger.error({ err, tenantId }, '[Invitations] Sending the WhatsApp invitation failed');
+    return { sent: false, error: 'WhatsApp could not deliver the invitation' };
+  }
+}
 
 export class InvitationsController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const tenantId = req.user!.tenantId;
       const { email, roleId } = req.body;
-      const rawPhone = req.body.phone;
-      const phone = rawPhone && String(rawPhone).trim() ? normalizePhone(rawPhone) : null;
-      if (rawPhone && String(rawPhone).trim() && !phone) {
-        return res.status(400).json({ error: 'Enter a valid WhatsApp number with country code' });
+      // The invitation link is sent to this WhatsApp number
+      const phone = normalizePhone(req.body.phone);
+      if (!phone) {
+        return res.status(400).json({ error: 'Enter a valid WhatsApp number (with country code if outside India)' });
       }
 
       const result = await withTenant(tenantId, async (tx) => {
@@ -83,7 +121,8 @@ export class InvitationsController {
         return newInvite;
       });
 
-      return res.status(201).json(result);
+      const whatsapp = await sendInviteOnWhatsApp(tenantId, req.user!.id, result);
+      return res.status(201).json({ ...result, whatsapp });
     } catch (error: any) {
       return res.status(400).json({ error: error.message || 'Failed to create invitation' });
     }
@@ -98,6 +137,7 @@ export class InvitationsController {
           .select({
             id: invitations.id,
             email: invitations.email,
+            phone: invitations.phone,
             roleId: invitations.roleId,
             roleName: roles.name,
             expiresAt: invitations.expiresAt,
@@ -159,7 +199,8 @@ export class InvitationsController {
         return updatedInvite;
       });
 
-      return res.json(result);
+      const whatsapp = await sendInviteOnWhatsApp(tenantId, req.user!.id, result);
+      return res.json({ ...result, whatsapp });
     } catch (error: any) {
       return res.status(400).json({ error: error.message });
     }
