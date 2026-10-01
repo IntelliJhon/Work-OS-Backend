@@ -48,6 +48,9 @@ const DEFAULTS = {
   workingDays: [1, 2, 3, 4, 5, 6],
 };
 
+/** A location that arrives this long after the check-in is still added to it */
+const LATE_LOCATION_MS = 30 * 60_000;
+
 // ─── Local time ────────────────────────────────────────────────────────────────
 
 const WEEKDAYS: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
@@ -152,7 +155,28 @@ export class AttendanceService {
       .from(attendanceRecords)
       .where(and(eq(attendanceRecords.tenantId, tenantId), eq(attendanceRecords.userId, userId), eq(attendanceRecords.day, day)))
       .limit(1);
-    if (existing) return { code: 'recorded' as const, created: false, day, record: existing };
+    const hasCoords = Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
+      && Math.abs(location.latitude!) <= 90 && Math.abs(location.longitude!) <= 180;
+    if (existing) {
+      // The app checks in without waiting for an unanswered location prompt; when the person allows it
+      // shortly after, the location is added to that check-in.
+      const lateLocation = hasCoords && existing.checkInAt && existing.latitude === null && !existing.correctedBy
+        && now.getTime() - existing.checkInAt.getTime() <= LATE_LOCATION_MS;
+      if (!lateLocation) return { code: 'recorded' as const, created: false, day, record: existing };
+      const [updated] = await db
+        .update(attendanceRecords)
+        .set({
+          latitude: location.latitude!,
+          longitude: location.longitude!,
+          accuracyM: Number.isFinite(location.accuracy) ? location.accuracy! : null,
+          locationStatus: 'ok',
+          updatedAt: now,
+        })
+        .where(and(eq(attendanceRecords.id, existing.id), isNull(attendanceRecords.latitude)))
+        .returning();
+      if (updated) logger.info({ tenantId, userId, day }, '[Attendance] Location added to check-in');
+      return { code: 'recorded' as const, created: false, day, record: updated ?? existing };
+    }
 
     if (!settings.workingDays.includes(weekday)) return { code: 'day_off' as const, created: false, day };
     const [holiday] = await this.holidaysBetween(tenantId, day, day);
@@ -160,8 +184,6 @@ export class AttendanceService {
     if (hhmm < settings.checkInFrom) return { code: 'too_early' as const, created: false, day, opensAt: settings.checkInFrom };
 
     const { status, early } = statusAt(hhmm, settings);
-    const hasCoords = Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
-      && Math.abs(location.latitude!) <= 90 && Math.abs(location.longitude!) <= 180;
     const locationStatus = hasCoords ? 'ok' : location.status === 'denied' ? 'denied' : 'unavailable';
 
     const [created] = await db
