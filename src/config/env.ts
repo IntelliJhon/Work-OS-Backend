@@ -44,6 +44,9 @@ const envSchema = z.object({
   WHATSAPP_LEAVE_UPDATE_TEMPLATE: z.string().optional().default('work_os_leave_update'),
   // Invitation (Utility template): {{1}} inviter, {{2}} workspace, {{3}} role; website button with a dynamic URL ending in the token
   WHATSAPP_INVITE_TEMPLATE: z.string().optional().default('work_os_account_setup'),
+  // Bill/renewal reminder: {{1}} first name, {{2}} what, {{3}} due, {{4}} amount; website button with a dynamic
+  // URL ending in the reminder id (…/reminders/{{1}})
+  WHATSAPP_DUE_REMINDER_TEMPLATE: z.string().optional().default('work_os_due_reminder'),
   // A request the manager hasn't decided after this many hours goes to the Admins
   LEAVE_ESCALATION_HOURS: z.coerce.number().min(1).max(720).optional().default(12),
   // Reminder for work from a voice note that has a due time (minutes before; 0 = none)

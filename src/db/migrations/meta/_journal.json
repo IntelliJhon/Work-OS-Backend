@@ -267,6 +267,13 @@
       "when": 1791100000000,
       "tag": "0037_sections_platform_admins",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791200000000,
+      "tag": "0038_due_reminders",
+      "breakpoints": true
     }
   ]
 }
