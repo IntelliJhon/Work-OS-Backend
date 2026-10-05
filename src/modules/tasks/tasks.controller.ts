@@ -100,9 +100,14 @@ export class TasksController {
           oldTask,
         );
 
+        delete (allowedUpdates as any).assignedBy;
         // If nothing is being updated, return unchanged
         if (Object.keys(allowedUpdates).length === 0) {
           return oldTask;
+        }
+        // Giving it to someone else makes you the one who assigned it
+        if (allowedUpdates.assigneeId !== undefined && allowedUpdates.assigneeId !== oldTask.assigneeId && allowedUpdates.assigneeId) {
+          (allowedUpdates as any).assignedBy = req.user!.id;
         }
 
         // Handle completedAt timestamp setting based on status transitions

@@ -14,6 +14,8 @@ export const tasks = pgTable('tasks', {
   activityId: uuid('activity_id').references(() => activities.id, { onDelete: 'cascade' }),
   sprintId: uuid('sprint_id').references(() => sprints.id, { onDelete: 'set null' }),
   assigneeId: uuid('assignee_id').references(() => users.id, { onDelete: 'set null' }),
+  // Who assigned it: the creator, or whoever last gave it to someone else (migration 0039); told when it is done
+  assignedBy: uuid('assigned_by').references(() => users.id, { onDelete: 'set null' }),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   status: varchar('status', { length: 50 }).notNull().default('todo'),

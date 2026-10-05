@@ -5,6 +5,24 @@ import { eq, and } from 'drizzle-orm';
 import { NotificationsService } from './notifications.service';
 import { logger } from '../../config/logger';
 import { withTenant } from '../../middleware/tenant.middleware';
+import { WhatsAppService } from '../../services/whatsapp.service';
+import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
+import { maskPhone } from '../../lib/phone';
+import { env } from '../../config/env';
+
+/** WhatsApp to whoever assigned a task that is now done (after the notification transaction) */
+async function sendWorkDoneWhatsApp(tenantId: string, to: { firstName: string; phone: string }, task: any, doneBy: string) {
+  try {
+    const workId = task.taskNumber ? `W-${task.taskNumber}` : 'Your work';
+    const wa = await WhatsAppBotsService.forTenant(tenantId);
+    const sent = await WhatsAppService.sendBodyTemplate(
+      to.phone, env.WHATSAPP_WORK_DONE_TEMPLATE, wa.templates.lang, [to.firstName, workId, task.name, doneBy], wa.sender,
+    );
+    if (!sent.success) logger.warn({ to: maskPhone(to.phone), taskId: task.id, error: sent.error }, '[TaskDone] WhatsApp to assigner failed');
+  } catch (err) {
+    logger.error({ err, taskId: task.id }, '[TaskDone] WhatsApp to assigner failed');
+  }
+}
 
 export class NotificationEvents {
   static async notifyPhaseEvent(tenantId: string, actorId: string, phase: any, type: string, title: string) {
@@ -93,6 +111,9 @@ export class NotificationEvents {
   }
 
   static async notifyTaskEvent(tenantId: string, actorId: string, oldTask: any, newTask: any) {
+    // WhatsApp messages to send once the notifications are saved
+    const whatsapp: { firstName: string; phone: string }[] = [];
+    let doneByName = 'Someone';
     try {
       await withTenant(tenantId, async (tx) => {
         let pmId: string | null = null;
@@ -212,8 +233,33 @@ export class NotificationEvents {
 
           // C. Completed
           if ((newTask.status === 'completed' || newTask.status === 'done') && oldTask.status !== 'completed' && oldTask.status !== 'done') {
-            // Notify PM (if not actor)
-            if (pmId && pmId !== actorId) {
+            const workId = newTask.taskNumber ? `W-${newTask.taskNumber}` : null;
+            doneByName = actorName;
+            // Whoever assigned it (unless they marked it done themselves): in-app + WhatsApp
+            const assignerId: string | null = newTask.assignedBy ?? null;
+            if (assignerId && assignerId !== actorId) {
+              const [assigner] = await tx
+                .select({ firstName: users.firstName, phone: users.phone, deletedAt: users.deletedAt })
+                .from(users)
+                .where(eq(users.id, assignerId));
+              if (assigner && !assigner.deletedAt) {
+                await NotificationsService.notify({
+                  tenantId,
+                  recipientUserId: assignerId,
+                  actorUserId: actorId,
+                  type: 'TASK_COMPLETED',
+                  title: `Work done: ${workId ? `${workId} · ` : ''}${newTask.name}`.slice(0, 250),
+                  message: `"${newTask.name}" was marked as done by ${actorName}.`,
+                  entityType: 'task',
+                  entityId: newTask.id,
+                  priority: 'success',
+                  metadata: { projectName, taskName: newTask.name, sprintId: newTask.sprintId, projectId: newTask.projectId, createdFrom },
+                }, tx);
+                if (assigner.phone) whatsapp.push({ firstName: assigner.firstName, phone: assigner.phone });
+              }
+            }
+            // Notify PM (if not actor, and not already told as the assigner)
+            if (pmId && pmId !== actorId && pmId !== assignerId) {
               await NotificationsService.notify({
                 tenantId,
                 recipientUserId: pmId,
@@ -239,6 +285,8 @@ export class NotificationEvents {
     } catch (err) {
       logger.error({ err, taskId: newTask.id }, 'Failed to trigger task notification event');
     }
+    // Not awaited: a slow WhatsApp send never delays saving the task
+    for (const to of whatsapp) void sendWorkDoneWhatsApp(tenantId, to, newTask, doneByName);
   }
 }
 

@@ -20,10 +20,12 @@ export interface CreateTaskOptions {
  */
 export async function createTaskInTx(tx: any, { tenantId, actorUserId, actorName, values, ipAddress }: CreateTaskOptions) {
   const completedAt = values.status === 'done' ? new Date() : null;
-  const { dueAt: _dueAt, remindAt: _remindAt, reminderSentAt: _sent, ...rest } = values;
+  const { dueAt: _dueAt, remindAt: _remindAt, reminderSentAt: _sent, assignedBy: _by, ...rest } = values;
   const [newTask] = await tx.insert(tasks).values({
     tenantId,
     ...rest,
+    // Whoever creates it assigned it (for voice-note work: the owner who sent it)
+    assignedBy: actorUserId,
     // Due and reminder moments come from the custom fields only
     ...scheduleFromCustomFields(values.customFields),
     completedAt,
