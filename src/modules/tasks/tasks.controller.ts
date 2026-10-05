@@ -101,6 +101,11 @@ export class TasksController {
         );
 
         delete (allowedUpdates as any).assignedBy;
+        // Only the person the work is assigned to moves it along (To do → In progress → Done…), not even an Admin.
+        // Others can still edit the details or reassign it. Unassigned work can be moved by anyone allowed to edit it.
+        if (allowedUpdates.status !== undefined && allowedUpdates.status !== oldTask.status && oldTask.assigneeId && oldTask.assigneeId !== req.user!.id) {
+          throw new ForbiddenError("Only the person this work is assigned to can change its status. Reassign it if someone else should do it.");
+        }
         // If nothing is being updated, return unchanged
         if (Object.keys(allowedUpdates).length === 0) {
           return oldTask;
