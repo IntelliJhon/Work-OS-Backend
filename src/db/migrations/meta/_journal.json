@@ -288,6 +288,13 @@
       "when": 1791400000000,
       "tag": "0040_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0041_group_extras",
+      "breakpoints": true
     }
   ]
 }

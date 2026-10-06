@@ -1,4 +1,4 @@
-import { index, jsonb, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { date, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid, varchar, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { users } from './users';
 
@@ -43,7 +43,34 @@ export const chatMessages = pgTable('chat_messages', {
   mentions: uuid('mentions').array().default([]).notNull(),
   attachments: jsonb('attachments').$type<ChatAttachment[]>().default([]).notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  // Migration 0041: the message this one replies to, and pinning
+  replyToId: uuid('reply_to_id').references((): AnyPgColumn => chatMessages.id, { onDelete: 'set null' }),
+  pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+  pinnedBy: uuid('pinned_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   groupTimeIdx: index('idx_chat_messages_group_time').on(table.groupId, table.createdAt),
+}));
+
+export interface SummaryContent {
+  keyPoints: string[];
+  decisions: string[];
+  actionItems: { text: string; person: string | null; personId: string | null; due: string | null }[];
+  openQuestions: string[];
+}
+
+/** Saved AI summaries of a group for a range of local days (migration 0041) */
+export const chatSummaries = pgTable('chat_summaries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  groupId: uuid('group_id').references(() => chatGroups.id, { onDelete: 'cascade' }).notNull(),
+  fromDay: date('from_day', { mode: 'string' }).notNull(),
+  toDay: date('to_day', { mode: 'string' }).notNull(),
+  content: jsonb('content').$type<SummaryContent>().notNull(),
+  messageCount: integer('message_count').notNull(),
+  lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  rangeUnique: unique('chat_summaries_group_range_unique').on(table.groupId, table.fromDay, table.toDay),
 }));

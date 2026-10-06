@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { chatGroupMembers, chatGroups, chatMessages, type ChatAttachment } from '../../db/schema/chat_groups';
 import { roles } from '../../db/schema/roles';
@@ -10,6 +10,9 @@ import { UploadService } from '../uploads/upload.service';
 import { getIoInstance } from '../../socket/socketServer';
 import { getUserRoom } from '../../socket/tenantRooms';
 import { logger } from '../../config/logger';
+import { createTaskInTx, formatWorkId } from '../tasks/tasks.service';
+import { SectionsService } from '../sections/sections.service';
+import { allows, roleAccess } from '../sections/role-access';
 
 /**
  * Company group chats, like WhatsApp groups. Admins and Project Managers (groups.create) create a group and add
@@ -26,7 +29,7 @@ export class GroupError extends Error {
 
 type Group = typeof chatGroups.$inferSelect;
 type Message = typeof chatMessages.$inferSelect;
-interface Person { id: string; firstName: string; lastName: string; workspaceAdmin: boolean; canCreate: boolean }
+export interface Person { id: string; firstName: string; lastName: string; workspaceAdmin: boolean; canCreate: boolean }
 
 const MAX_BODY = 4000;
 const PAGE = 50;
@@ -76,6 +79,11 @@ export class GroupsService {
     return db.select().from(chatGroupMembers).where(eq(chatGroupMembers.groupId, groupId));
   }
 
+  /** For other group features (e.g. summaries): the same membership check */
+  static async memberContext(tenantId: string, actorId: string, groupId: string) {
+    return this.access(tenantId, actorId, groupId);
+  }
+
   /** The group, its members and the actor's place in it; 404 for non-members */
   private static async access(tenantId: string, actorId: string, groupId: string) {
     const [g, list, everyone] = await Promise.all([this.group(tenantId, groupId), this.memberships(groupId), people(tenantId)]);
@@ -86,8 +94,10 @@ export class GroupsService {
     return { g, list, me, everyone, canManage };
   }
 
-  private static view(m: Message, everyone: Person[]) {
+  private static view(m: Message, everyone: Person[], replies: Map<string, Message> = new Map()) {
     const sender = everyone.find((p) => p.id === m.senderId);
+    const quoted = m.replyToId ? replies.get(m.replyToId) : undefined;
+    const quotedSender = quoted ? everyone.find((p) => p.id === quoted.senderId) : undefined;
     return {
       id: m.id,
       groupId: m.groupId,
@@ -97,8 +107,24 @@ export class GroupsService {
       mentions: m.deletedAt ? [] : m.mentions,
       attachments: m.deletedAt ? [] : m.attachments,
       deleted: !!m.deletedAt,
+      pinnedAt: m.deletedAt ? null : m.pinnedAt,
+      replyTo: !m.replyToId || m.deletedAt ? null : quoted ? {
+        id: quoted.id,
+        senderName: quotedSender ? fullName(quotedSender) : 'Former member',
+        body: quoted.deletedAt ? null : (quoted.body ?? '').slice(0, 200),
+        attachmentName: quoted.deletedAt ? null : quoted.attachments[0]?.name ?? null,
+        deleted: !!quoted.deletedAt,
+      } : { id: m.replyToId, senderName: '', body: null, attachmentName: null, deleted: true },
       createdAt: m.createdAt,
     };
+  }
+
+  /** The messages that a set of messages reply to */
+  private static async repliesFor(groupId: string, list: Message[]) {
+    const ids = [...new Set(list.map((m) => m.replyToId).filter((x): x is string => !!x))];
+    if (!ids.length) return new Map<string, Message>();
+    const rows = await db.select().from(chatMessages).where(and(eq(chatMessages.groupId, groupId), inArray(chatMessages.id, ids)));
+    return new Map(rows.map((x) => [x.id, x]));
   }
 
   // ─── Groups ───────────────────────────────────────────────────────────────────
@@ -148,7 +174,7 @@ export class GroupsService {
     const members = list
       .map((m) => {
         const p = everyone.find((x) => x.id === m.userId);
-        return p ? { id: p.id, name: fullName(p), role: m.role, joinedAt: m.joinedAt } : null;
+        return p ? { id: p.id, name: fullName(p), role: m.role, joinedAt: m.joinedAt, lastReadAt: m.lastReadAt } : null;
       })
       .filter((m): m is NonNullable<typeof m> => !!m)
       .sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'admin' ? -1 : 1));
@@ -263,10 +289,12 @@ export class GroupsService {
       .orderBy(desc(chatMessages.createdAt))
       .limit(PAGE + 1);
     const more = rows.length > PAGE;
-    return { messages: rows.slice(0, PAGE).reverse().map((m) => this.view(m, everyone)), more };
+    const page = rows.slice(0, PAGE).reverse();
+    const replies = await this.repliesFor(groupId, page);
+    return { messages: page.map((m) => this.view(m, everyone, replies)), more };
   }
 
-  static async send(tenantId: string, actorId: string, groupId: string, input: { body?: string; mentions?: string[]; files?: Express.Multer.File[] }) {
+  static async send(tenantId: string, actorId: string, groupId: string, input: { body?: string; mentions?: string[]; files?: Express.Multer.File[]; replyToId?: string | null }) {
     const { g, list, everyone } = await this.access(tenantId, actorId, groupId);
     const body = (input.body ?? '').trim();
     const files = input.files ?? [];
@@ -280,14 +308,20 @@ export class GroupsService {
       const up = await UploadService.processUpload({ tenantId, uploaderId: actorId, entityType: 'GROUP', entityId: groupId, file });
       attachments.push({ uploadId: up.id, name: file.originalname, mimeType: file.mimetype, size: file.size });
     }
+    let replyToId: string | null = null;
+    if (input.replyToId) {
+      const [quoted] = await db.select({ id: chatMessages.id }).from(chatMessages).where(and(eq(chatMessages.id, input.replyToId), eq(chatMessages.groupId, groupId))).limit(1);
+      if (!quoted) throw new GroupError(400, 'reply_to', 'The message you are replying to is not in this group');
+      replyToId = quoted.id;
+    }
     const memberIds = list.map((m) => m.userId);
     const mentions = [...new Set(input.mentions ?? [])].filter((id) => id !== actorId && memberIds.includes(id));
     const now = new Date();
-    const [m] = await db.insert(chatMessages).values({ tenantId, groupId, senderId: actorId, body: body || null, mentions, attachments, createdAt: now }).returning();
+    const [m] = await db.insert(chatMessages).values({ tenantId, groupId, senderId: actorId, body: body || null, mentions, attachments, replyToId, createdAt: now }).returning();
     await db.update(chatGroups).set({ lastMessageAt: now }).where(eq(chatGroups.id, groupId));
     await db.update(chatGroupMembers).set({ lastReadAt: now }).where(and(eq(chatGroupMembers.groupId, groupId), eq(chatGroupMembers.userId, actorId)));
 
-    const message = this.view(m, everyone);
+    const message = this.view(m, everyone, await this.repliesFor(groupId, [m]));
     pushTo(tenantId, memberIds, 'group_message', { groupId, message });
 
     if (mentions.length) {
@@ -317,10 +351,86 @@ export class GroupsService {
   }
 
   static async markRead(tenantId: string, actorId: string, groupId: string) {
-    await this.access(tenantId, actorId, groupId);
-    await db.update(chatGroupMembers).set({ lastReadAt: new Date() }).where(and(eq(chatGroupMembers.groupId, groupId), eq(chatGroupMembers.userId, actorId)));
-    pushTo(tenantId, [actorId], 'group_read', { groupId });
+    const { list } = await this.access(tenantId, actorId, groupId);
+    const lastReadAt = new Date();
+    await db.update(chatGroupMembers).set({ lastReadAt }).where(and(eq(chatGroupMembers.groupId, groupId), eq(chatGroupMembers.userId, actorId)));
+    // Everyone in the group: their "Seen by" counts change
+    pushTo(tenantId, list.map((m) => m.userId), 'group_read', { groupId, userId: actorId, lastReadAt });
     return { read: groupId };
+  }
+
+  // ─── Pins, search, message → task ──────────────────────────────────────────────
+
+  /** Group admins pin or unpin a message */
+  static async setPinned(tenantId: string, actorId: string, groupId: string, messageId: string, pinned: boolean) {
+    const { list, canManage } = await this.access(tenantId, actorId, groupId);
+    if (!canManage) throw new GroupError(403, 'forbidden', 'Only group admins can pin messages');
+    const [m] = await db.select().from(chatMessages).where(and(eq(chatMessages.id, messageId), eq(chatMessages.groupId, groupId))).limit(1);
+    if (!m || m.deletedAt) throw new GroupError(404, 'not_found', 'Message not found');
+    await db.update(chatMessages).set(pinned ? { pinnedAt: new Date(), pinnedBy: actorId } : { pinnedAt: null, pinnedBy: null }).where(eq(chatMessages.id, messageId));
+    pushTo(tenantId, list.map((x) => x.userId), 'group_pins', { groupId });
+    return { messageId, pinned };
+  }
+
+  static async pinned(tenantId: string, actorId: string, groupId: string) {
+    const { everyone } = await this.access(tenantId, actorId, groupId);
+    const rows = await db.select().from(chatMessages)
+      .where(and(eq(chatMessages.groupId, groupId), isNotNull(chatMessages.pinnedAt), isNull(chatMessages.deletedAt)))
+      .orderBy(desc(chatMessages.pinnedAt)).limit(50);
+    return rows.map((m) => this.view(m, everyone));
+  }
+
+  /** Messages whose text or file names contain the words */
+  static async search(tenantId: string, actorId: string, groupId: string, query: string) {
+    const { everyone } = await this.access(tenantId, actorId, groupId);
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = await db.select().from(chatMessages)
+      .where(and(eq(chatMessages.groupId, groupId), isNull(chatMessages.deletedAt), or(ilike(chatMessages.body, like), sql`${chatMessages.attachments}::text ilike ${like}`)))
+      .orderBy(desc(chatMessages.createdAt)).limit(50);
+    return rows.map((m) => this.view(m, everyone));
+  }
+
+  /** Turns a message (or a summary's action item) into a task for a workspace member */
+  static async createTask(
+    tenantId: string,
+    actorId: string,
+    actorRoleId: string,
+    groupId: string,
+    input: { messageId?: string | null; name: string; assigneeId: string; dueDate?: string | null },
+  ) {
+    const { g, everyone } = await this.access(tenantId, actorId, groupId);
+    if (!(await SectionsService.isEnabled(tenantId, 'tasks'))) throw new GroupError(403, 'tasks_off', 'Tasks are turned off for this workspace');
+    if (!allows(await roleAccess(tenantId, actorRoleId), 'task.create')) throw new GroupError(403, 'forbidden', 'Your role cannot create tasks');
+    const assignee = everyone.find((p) => p.id === input.assigneeId);
+    if (!assignee) throw new GroupError(400, 'assignee', 'Choose someone from your workspace');
+    const name = input.name.trim().slice(0, 255);
+    if (name.length < 2) throw new GroupError(400, 'name', 'Give the task a name');
+    let source: Message | undefined;
+    if (input.messageId) {
+      [source] = await db.select().from(chatMessages).where(and(eq(chatMessages.id, input.messageId), eq(chatMessages.groupId, groupId))).limit(1);
+      if (!source) throw new GroupError(404, 'not_found', 'Message not found');
+    }
+    const actor = everyone.find((p) => p.id === actorId)!;
+    const sourceSender = source ? everyone.find((p) => p.id === source!.senderId) : undefined;
+    const task = await withTenant(tenantId, (tx) => createTaskInTx(tx, {
+      tenantId,
+      actorUserId: actorId,
+      actorName: fullName(actor),
+      values: {
+        projectId: null,
+        name,
+        description: source?.body
+          ? `From the group "${g.name}"${sourceSender ? `, message by ${fullName(sourceSender)}` : ''}:\n\n${source.body}`
+          : `From the group "${g.name}".`,
+        status: 'to_do',
+        assigneeId: assignee.id,
+        customFields: { priority: 'medium', dueDate: input.dueDate || undefined, createdFrom: 'sidebar', fromGroup: { groupId, messageId: source?.id ?? null } },
+      },
+    }));
+    logger.info({ tenantId, groupId, taskId: task.id }, '[Groups] Task created from the group');
+    return { id: task.id, workId: formatWorkId(task.taskNumber), name: task.name, assigneeName: fullName(assignee) };
   }
 
   /** A short-lived link to a shared file (members only) */

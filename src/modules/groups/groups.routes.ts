@@ -4,6 +4,8 @@ import { z, ZodError } from 'zod';
 import { authenticate, AuthRequest } from '../../middleware/auth.middleware';
 import { uploadLimiter } from '../../middleware/rateLimiter';
 import { GroupError, GroupsService } from './groups.service';
+import { GroupSummaryService } from './group-summary.service';
+import { isRealDay } from '../attendance/attendance.service';
 
 // Who may do what is decided in GroupsService (members only; group admins and workspace Admins manage).
 
@@ -16,6 +18,14 @@ const createSchema = z.object({
 const updateSchema = z.object({ name: z.string().trim().min(2).max(80).optional(), description: z.string().trim().max(500).nullish() });
 const membersSchema = z.object({ userIds: z.array(z.string().uuid()).min(1).max(500) });
 const roleSchema = z.object({ role: z.enum(['admin', 'member']) });
+const day = z.string().refine(isRealDay, 'Invalid date');
+const summarySchema = z.object({ from: day, to: day, refresh: z.boolean().optional() });
+const taskSchema = z.object({
+  messageId: z.string().uuid().nullish(),
+  name: z.string().trim().min(2).max(255),
+  assigneeId: z.string().uuid(),
+  dueDate: day.nullish(),
+});
 
 // Shared files: up to 5 × 10 MB per message, kept in memory until uploaded
 const fileUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 5 } });
@@ -95,7 +105,8 @@ groupsRouter.post('/:id/messages', readFiles as any, handle(async (req, res) => 
   const body = typeof req.body?.body === 'string' ? req.body.body : '';
   const parsedMentions = z.array(z.string().uuid()).max(100).catch([]).parse(mentions ?? []);
   const files = ((req as any).files ?? []) as Express.Multer.File[];
-  res.status(201).json({ success: true, data: await GroupsService.send(who(req).tenantId, who(req).userId, id.parse(req.params.id), { body, mentions: parsedMentions, files }) });
+  const replyToId = typeof req.body?.replyToId === 'string' && req.body.replyToId ? id.parse(req.body.replyToId) : null;
+  res.status(201).json({ success: true, data: await GroupsService.send(who(req).tenantId, who(req).userId, id.parse(req.params.id), { body, mentions: parsedMentions, files, replyToId }) });
 }));
 groupsRouter.delete('/:id/messages/:messageId', handle(async (req, res) => {
   res.json({ success: true, data: await GroupsService.deleteMessage(who(req).tenantId, who(req).userId, id.parse(req.params.id), id.parse(req.params.messageId)) });
@@ -105,4 +116,33 @@ groupsRouter.post('/:id/read', handle(async (req, res) => {
 }));
 groupsRouter.get('/:id/files/:uploadId', handle(async (req, res) => {
   res.json({ success: true, data: await GroupsService.fileUrl(who(req).tenantId, who(req).userId, id.parse(req.params.id), id.parse(req.params.uploadId)) });
+}));
+
+// Pinned messages (group admins pin)
+groupsRouter.get('/:id/pinned', handle(async (req, res) => {
+  res.json({ success: true, data: await GroupsService.pinned(who(req).tenantId, who(req).userId, id.parse(req.params.id)) });
+}));
+groupsRouter.post('/:id/messages/:messageId/pin', handle(async (req, res) => {
+  res.json({ success: true, data: await GroupsService.setPinned(who(req).tenantId, who(req).userId, id.parse(req.params.id), id.parse(req.params.messageId), true) });
+}));
+groupsRouter.delete('/:id/messages/:messageId/pin', handle(async (req, res) => {
+  res.json({ success: true, data: await GroupsService.setPinned(who(req).tenantId, who(req).userId, id.parse(req.params.id), id.parse(req.params.messageId), false) });
+}));
+
+// GET /api/groups/:id/search?q=words
+groupsRouter.get('/:id/search', handle(async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : '';
+  res.json({ success: true, data: await GroupsService.search(who(req).tenantId, who(req).userId, id.parse(req.params.id), q) });
+}));
+
+// POST /api/groups/:id/tasks - a task from a message or a summary's action item
+groupsRouter.post('/:id/tasks', handle(async (req, res) => {
+  const body = taskSchema.parse(req.body);
+  res.status(201).json({ success: true, data: await GroupsService.createTask(who(req).tenantId, who(req).userId, req.user!.roleId, id.parse(req.params.id), body) });
+}));
+
+// POST /api/groups/:id/summary { from, to, refresh } - AI summary of those days (saved; reused until new messages)
+groupsRouter.post('/:id/summary', handle(async (req, res) => {
+  const body = summarySchema.parse(req.body);
+  res.json({ success: true, data: await GroupSummaryService.summarize(who(req).tenantId, who(req).userId, id.parse(req.params.id), body.from, body.to, body.refresh === true) });
 }));
