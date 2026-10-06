@@ -46,6 +46,7 @@ export class AuthService {
         tenantId: user.tenantId,
         roleId: user.roleId,
         email: user.email,
+        jti: crypto.randomUUID(), // two tokens issued in the same second must still differ
       },
       env.JWT_REFRESH_SECRET,
       { expiresIn: cutoff ? Math.max(60, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : env.JWT_REFRESH_EXPIRATION as any }

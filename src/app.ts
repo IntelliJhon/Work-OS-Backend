@@ -1,6 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import { env, isProduction } from './config/env';
+import { allowedOrigins } from './config/origins';
 import { logger } from './config/logger';
 import { errorHandler } from './middleware/error.middleware';
 import { requestLogger, requestIdMiddleware } from './middleware/requestLogger';
@@ -64,8 +66,11 @@ createBullBoard({
 
 const app = express();
 
+// Render puts one proxy in front of the app; trusting it makes req.ip the visitor's address (rate limits, audit log)
+app.set('trust proxy', env.TRUST_PROXY_HOPS);
 app.use(helmet());
-app.use(cors());
+// Only the Work OS web app may call the API from a browser (server-to-server callers send no Origin and are unaffected)
+app.use(cors({ origin: allowedOrigins() }));
 app.use(express.json());
 
 // Inject request ID and structured logging
@@ -109,8 +114,10 @@ app.use('/api/leave', requireSection('leave') as any, leaveRouter);
 app.use('/api/reminders', requireSection('reminders') as any, dueRemindersRouter);
 app.use('/api/groups', requireSection('groups') as any, groupsRouter);
 
-// Background Jobs Dashboard
-app.use('/admin/queues', serverAdapter.getRouter());
+// Background Jobs Dashboard: it has no login of its own, so it is only served on a developer's machine
+if (!isProduction) {
+  app.use('/admin/queues', serverAdapter.getRouter());
+}
 
 // Detailed Healthchecks
 app.get('/health', (req, res) => {

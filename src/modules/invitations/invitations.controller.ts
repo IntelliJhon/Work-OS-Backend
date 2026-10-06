@@ -10,6 +10,7 @@ import { AuditService } from '../../services/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { maskPhone, normalizePhone } from '../../lib/phone';
 import { eq, and, isNull, gt } from 'drizzle-orm';
+import { sendSession } from '../auth/session-cookie';
 import crypto from 'crypto';
 import { WhatsAppService } from '../../services/whatsapp.service';
 import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
@@ -447,7 +448,7 @@ export class InvitationsController {
         };
       });
 
-      return res.status(200).json(result);
+      return sendSession(res, result);
     } catch (error: any) {
       return res.status(400).json({ error: error.message || 'Invitation acceptance failed' });
     }

@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { setIoInstance } from './socketServer';
 import { socketAuthMiddleware } from './socketAuth';
+import { allowedOrigins } from '../config/origins';
 import { logger } from '../config/logger';
 import { getTenantRoom, getUserRoom } from './tenantRooms';
 import { and, eq } from 'drizzle-orm';
@@ -25,7 +26,7 @@ const projectBelongsToTenant = async (projectId: string, tenantId: string): Prom
 export const initSocket = (httpServer: HttpServer) => {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: '*', // In production, restrict to frontend domain
+      origin: allowedOrigins(),
       methods: ['GET', 'POST']
     }
   });

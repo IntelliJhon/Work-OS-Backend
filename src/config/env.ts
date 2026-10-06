@@ -18,6 +18,9 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.string().default('500').transform(val => parseInt(val, 10)),
   N8N_OPEN_POINT_WEBHOOK: z.string().optional().default(''),
   APP_URL: z.string().optional().default('http://localhost:5173'),
+  // Extra browser origins allowed to call the API (comma separated); APP_URL is always allowed
+  CORS_ORIGINS: z.string().optional().default('https://work-os-liart.vercel.app'),
+  TRUST_PROXY_HOPS: z.string().default('1').transform(val => parseInt(val, 10)),
   AUTOMATIONS_BUILDER_API_BASE: z.string().optional().default('https://partner-api.automationsbuilder.com'),
   AUTOMATIONS_BUILDER_API_TOKEN: z.string().optional().default('ed30d865-61a9-4d02-9af8-e262cd9962d4'),
   CRON_SECRET: z.string().optional().default('workos_expiry_cron_secret_2026'),
@@ -77,3 +80,6 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+// Render always sets RENDER=true, so a missing NODE_ENV there can never leave production in development mode
+export const isProduction = env.NODE_ENV === 'production' || process.env.RENDER === 'true';

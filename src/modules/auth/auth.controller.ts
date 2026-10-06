@@ -6,16 +6,36 @@ import { AuthRepository } from './auth.repository';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
 import bcrypt from 'bcrypt';
+import { clearRefreshCookie, readRefreshToken, sendSession } from './session-cookie';
+import { lockRemaining, recordFailure, recordSuccess } from './login-guard';
+
+const tooManyAttempts = (res: Response, ms: number) => {
+  const minutes = Math.max(1, Math.ceil(ms / 60000));
+  res.setHeader('Retry-After', String(Math.ceil(ms / 1000)));
+  return res.status(429).json({
+    error: `Too many wrong passwords. For your safety this login is locked for ${minutes} minute${minutes === 1 ? '' : 's'}. Try again later or use "Forgot password".`,
+    code: 'login_locked',
+  });
+};
+
+const wrongCredentials = (res: Response, workspace: string, email: string) => {
+  const locked = recordFailure(workspace, email);
+  if (locked) return tooManyAttempts(res, locked);
+  return res.status(401).json({ error: 'Invalid workspace or credentials' });
+};
 
 export class AuthController {
   static async login(req: Request, res: Response, next: NextFunction) {
     try {
       const { workspace, email, password } = req.body;
 
+      const locked = lockRemaining(workspace, email);
+      if (locked) return tooManyAttempts(res, locked);
+
       // 1. Lookup tenant globally using slug (workspace)
       const tenant = await TenantRepository.findBySlug(workspace);
       if (!tenant || !tenant.isActive) {
-        return res.status(401).json({ error: 'Invalid workspace or credentials' });
+        return wrongCredentials(res, workspace, email);
       }
 
       // 2. Open strictly enforced tenant context
@@ -23,10 +43,11 @@ export class AuthController {
         return await AuthService.login(tx, email, password);
       });
 
-      return res.json(result);
+      recordSuccess(workspace, email);
+      return sendSession(res, result);
     } catch (error: any) {
       if (error.message === 'Invalid credentials') {
-        return res.status(401).json({ error: 'Invalid workspace or credentials' });
+        return wrongCredentials(res, req.body.workspace, req.body.email);
       }
       next(error);
     }
@@ -34,12 +55,16 @@ export class AuthController {
 
   static async refresh(req: Request, res: Response, next: NextFunction) {
     try {
-      const { refreshToken } = req.body;
-      
+      const refreshToken = readRefreshToken(req);
+      if (!refreshToken) {
+        return res.status(401).json({ error: 'Refresh token invalid or expired' });
+      }
+
       let decoded: any;
       try {
         decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET);
       } catch (err) {
+        clearRefreshCookie(res);
         return res.status(401).json({ error: 'Refresh token invalid or expired' });
       }
 
@@ -49,21 +74,25 @@ export class AuthController {
         return await AuthService.verifyAndRotateRefreshToken(tx, refreshToken, decoded);
       });
 
-      return res.json(result);
+      return sendSession(res, result);
     } catch (error: any) {
+      clearRefreshCookie(res);
       return res.status(401).json({ error: 'Refresh token invalid or expired' });
     }
   }
 
   static async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = readRefreshToken(req);
       const user = (req as any).user;
 
-      await withTenant(user.tenantId, async (tx) => {
-        await AuthService.logout(tx, user.id, refreshToken);
-      });
+      if (refreshToken) {
+        await withTenant(user.tenantId, async (tx) => {
+          await AuthService.logout(tx, user.id, refreshToken);
+        });
+      }
 
+      clearRefreshCookie(res);
       return res.status(204).send();
     } catch (error) {
       next(error);

@@ -9,15 +9,17 @@ export const loginSchema = z.object({
 });
 
 export const refreshSchema = z.object({
+  // The token normally arrives in the HttpOnly cookie; the body is only for sessions from before that
   body: z.object({
-    refreshToken: z.string(),
-  }),
+    refreshToken: z.string().optional(),
+  }).optional(),
 });
 
 export const logoutSchema = z.object({
+  // The token normally arrives in the HttpOnly cookie; the body is only for sessions from before that
   body: z.object({
-    refreshToken: z.string(),
-  }),
+    refreshToken: z.string().optional(),
+  }).optional(),
 });
 
 export const forgotPasswordSchema = z.object({
