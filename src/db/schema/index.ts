@@ -32,3 +32,4 @@ export * from './attendance';
 export * from './leave';
 export * from './platform_admins';
 export * from './due_reminders';
+export * from './chat_groups';

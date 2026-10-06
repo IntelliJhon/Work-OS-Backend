@@ -19,11 +19,12 @@ export const SECTIONS = {
   leave: 'Leave',
   voice_notes: 'Voice Notes',
   reminders: 'Reminders',
+  groups: 'Groups',
 } as const;
 export type Section = keyof typeof SECTIONS;
 export type Sections = Record<Section, boolean>;
 
-const DEFAULTS: Sections = { projects: true, tasks: true, calendar: true, attendance: true, leave: true, voice_notes: true, reminders: true };
+const DEFAULTS: Sections = { projects: true, tasks: true, calendar: true, attendance: true, leave: true, voice_notes: true, reminders: true, groups: true };
 const NEEDS_TASKS: Section[] = ['projects', 'calendar', 'voice_notes'];
 const CACHE_MS = 30_000;
 

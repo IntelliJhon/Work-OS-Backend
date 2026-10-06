@@ -37,6 +37,7 @@ import { calendarRouter } from './modules/calendar/calendar.routes';
 import { attendanceRouter } from './modules/attendance/attendance.routes';
 import { leaveRouter } from './modules/leave/leave.routes';
 import { dueRemindersRouter } from './modules/due-reminders/due-reminders.routes';
+import { groupsRouter } from './modules/groups/groups.routes';
 import { platformWorkspacesRouter, workspaceRouter } from './modules/sections/sections.routes';
 import { requireSection } from './modules/sections/sections.service';
 
@@ -106,6 +107,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/leave', requireSection('leave') as any, leaveRouter);
 app.use('/api/reminders', requireSection('reminders') as any, dueRemindersRouter);
+app.use('/api/groups', requireSection('groups') as any, groupsRouter);
 
 // Background Jobs Dashboard
 app.use('/admin/queues', serverAdapter.getRouter());

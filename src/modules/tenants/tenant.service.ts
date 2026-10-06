@@ -56,6 +56,7 @@ export class TenantService {
             "voice_notes.update": true,
             "attendance.read": true,
             "leave.approve": true,
+            "groups.create": true,
             "attendance.use": true,
             "leave.use": true
           }
