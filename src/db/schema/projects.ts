@@ -1,6 +1,7 @@
 import { pgTable, timestamp, uuid, varchar, text, index } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 import { users } from './users';
+import { workspaceClients } from './workspace_clients';
 
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -11,6 +12,8 @@ export const projects = pgTable('projects', {
   overview: text('overview'),
   scopes: text('scopes'),
   clientName: varchar('client_name', { length: 255 }),
+  // The client from the Clients section; NULL for the workspace's own "Company Projects" (migration 0043)
+  clientId: uuid('client_id').references(() => workspaceClients.id, { onDelete: 'set null' }),
   status: varchar('status', { length: 50 }).notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

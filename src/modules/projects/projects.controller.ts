@@ -5,6 +5,16 @@ import { ProjectsService } from './projects.service';
 import { projectMembers } from '../../db/schema/project_members';
 import { tasks } from '../../db/schema/tasks';
 import { eq, and } from 'drizzle-orm';
+import { taskScope } from '../tasks/task-visibility';
+import { ForbiddenError } from '../../errors/workflow.errors';
+
+/** Editing or deleting a project: Admins, Project Managers (role or project.manage), and the project's own PM */
+async function assertCanManage(tx: any, tenantId: string, userId: string, projectId: string) {
+  const scope = await taskScope(tx, tenantId, userId);
+  if (!scope.all && !scope.managedProjectIds.includes(projectId)) {
+    throw new ForbiddenError("Only Admins, Project Managers and this project's manager can change or delete it");
+  }
+}
 
 
 export class ProjectsController {
@@ -96,6 +106,7 @@ export class ProjectsController {
       const projectId = req.params.id as string;
 
       const result = await withTenant(tenantId, async (tx) => {
+        await assertCanManage(tx, tenantId, req.user!.id, projectId);
         return await ProjectsService.updateProject(tx, tenantId, req.user!.id, req.ip || '', projectId, req.body);
       });
 
@@ -111,6 +122,7 @@ export class ProjectsController {
       const projectId = req.params.id as string;
 
       await withTenant(tenantId, async (tx) => {
+        await assertCanManage(tx, tenantId, req.user!.id, projectId);
         await ProjectsService.deleteProject(tx, tenantId, req.user!.id, req.ip || '', projectId);
       });
 

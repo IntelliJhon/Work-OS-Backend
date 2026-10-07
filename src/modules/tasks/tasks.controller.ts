@@ -15,6 +15,7 @@ import { createTaskInTx } from './tasks.service';
 import { scheduleForUpdate } from '../calendar/task-schedule';
 import { voiceNotes } from '../../db/schema/voice_notes';
 import { emitToTenant } from '../voice-notes/voice-notes.controller';
+import { taskScope, visibleTasks } from './task-visibility';
 
 export class TasksController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -52,8 +53,10 @@ export class TasksController {
     try {
       const tenantId = req.user!.tenantId;
 
+      // Admins and Project Managers get all work; others only their own (see task-visibility)
       const result = await withTenant(tenantId, async (tx) => {
-        return await tx.select().from(tasks);
+        const scope = await taskScope(tx, tenantId, req.user!.id);
+        return await tx.select().from(tasks).where(visibleTasks(scope));
       });
 
       return res.json(result);

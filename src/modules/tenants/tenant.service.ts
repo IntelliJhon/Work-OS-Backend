@@ -38,7 +38,7 @@ export class TenantService {
       const [adminRole] = await tx.insert(roles).values({
         tenantId: tenant.id,
         name: 'Tenant Admin',
-        permissions: { "project.create": true, "task.create": true, "user.invite": true, "admin": true, "attendance.use": true, "leave.use": true }
+        permissions: { "project.create": true, "task.create": true, "user.invite": true, "admin": true, "attendance.use": true, "leave.use": true, "client.read": true }
       }).returning();
 
       await tx.insert(roles).values([
@@ -57,13 +57,15 @@ export class TenantService {
             "attendance.read": true,
             "leave.approve": true,
             "groups.create": true,
+            "client.read": true,
+            "client.manage": true,
             "attendance.use": true,
             "leave.use": true
           }
         },
-        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true, "attendance.use": true, "leave.use": true } },
-        { tenantId: tenant.id, name: 'Developer', permissions: { "project.read": true, "task.read": true, "task.create": true, "task.update": true, "comment.create": true, "attendance.use": true, "leave.use": true } },
-        { tenantId: tenant.id, name: 'Viewer', permissions: { "project.read": true, "task.read": true, "attendance.use": true, "leave.use": true } },
+        { tenantId: tenant.id, name: 'Scrum Master', permissions: { "project.read": true, "task.read": true, "task.create": true, "attendance.use": true, "leave.use": true, "client.read": true } },
+        { tenantId: tenant.id, name: 'Developer', permissions: { "project.read": true, "task.read": true, "task.create": true, "task.update": true, "comment.create": true, "attendance.use": true, "leave.use": true, "client.read": true } },
+        { tenantId: tenant.id, name: 'Viewer', permissions: { "project.read": true, "task.read": true, "attendance.use": true, "leave.use": true, "client.read": true } },
       ]);
 
       // 3. Create Admin User

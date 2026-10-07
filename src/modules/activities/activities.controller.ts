@@ -3,6 +3,9 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { ActivitiesService } from './activities.service';
 import { emitWorkflowEvent } from '../../socket/eventEmitter';
+import { and, eq } from 'drizzle-orm';
+import { tasks } from '../../db/schema/tasks';
+import { taskScope, visibleTasks } from '../tasks/task-visibility';
 
 export class ActivitiesController {
   static async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -43,7 +46,14 @@ export class ActivitiesController {
       const projectId = req.params.projectId as string;
 
       const result = await withTenant(tenantId, async (tx) => {
-        return await ActivitiesService.getActivities(tx, tenantId, projectId);
+        const list = await ActivitiesService.getActivities(tx, tenantId, projectId);
+        // People who don't manage the project see only the planner items that hold work they can see
+        const scope = await taskScope(tx, tenantId, req.user!.id);
+        if (scope.all || scope.managedProjectIds.includes(projectId)) return list;
+        const mine = await tx.select({ activityId: tasks.activityId }).from(tasks)
+          .where(and(eq(tasks.tenantId, tenantId), eq(tasks.projectId, projectId), visibleTasks(scope)));
+        const keep = new Set(mine.map((t: { activityId: string | null }) => t.activityId));
+        return list.filter((a: { id: string }) => keep.has(a.id));
       });
 
       return res.json(result);

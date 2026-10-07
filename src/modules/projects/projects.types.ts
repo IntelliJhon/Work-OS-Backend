@@ -4,6 +4,8 @@ export interface CreateProjectInput {
   overview?: string;
   scopes?: string;
   clientName?: string;
+  // A client from the Clients section; null = the workspace's own "Company Projects"
+  clientId?: string | null;
   pmId?: string;
   status?: string;
 }

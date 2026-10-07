@@ -40,6 +40,8 @@ import { attendanceRouter } from './modules/attendance/attendance.routes';
 import { leaveRouter } from './modules/leave/leave.routes';
 import { dueRemindersRouter } from './modules/due-reminders/due-reminders.routes';
 import { groupsRouter } from './modules/groups/groups.routes';
+import { workspaceClientsRouter } from './modules/workspace-clients/workspace-clients.routes';
+import { timeLogsRouter } from './modules/time-logs/time-logs.routes';
 import { platformWorkspacesRouter, workspaceRouter } from './modules/sections/sections.routes';
 import { requireSection } from './modules/sections/sections.service';
 
@@ -113,6 +115,8 @@ app.use('/api/attendance', attendanceRouter);
 app.use('/api/leave', requireSection('leave') as any, leaveRouter);
 app.use('/api/reminders', requireSection('reminders') as any, dueRemindersRouter);
 app.use('/api/groups', requireSection('groups') as any, groupsRouter);
+app.use('/api/workspace-clients', requireSection('clients') as any, workspaceClientsRouter);
+app.use('/api/time-logs', requireSection('tasks') as any, timeLogsRouter);
 
 // Background Jobs Dashboard: it has no login of its own, so it is only served on a developer's machine
 if (!isProduction) {

@@ -33,3 +33,5 @@ export * from './leave';
 export * from './platform_admins';
 export * from './due_reminders';
 export * from './chat_groups';
+export * from './workspace_clients';
+export * from './time_logs';

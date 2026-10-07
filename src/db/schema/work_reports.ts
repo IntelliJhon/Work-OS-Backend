@@ -1,5 +1,7 @@
-import { pgTable, timestamp, uuid, varchar, text, index } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, text, index, date, integer } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
+import { tasks } from './tasks';
+import { projects } from './projects';
 
 export const workReports = pgTable('employee_work_reports', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -14,6 +16,11 @@ export const workReports = pgTable('employee_work_reports', {
   documentName: varchar('document_name', { length: 255 }),
   fileType: varchar('file_type', { length: 100 }),
   fileSize: varchar('file_size', { length: 50 }),
+  // Time worked (set for reports that come from a task time log, migration 0043)
+  workDate: date('work_date'),
+  minutes: integer('minutes'),
+  taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => {

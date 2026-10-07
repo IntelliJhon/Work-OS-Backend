@@ -9,7 +9,28 @@ import { phases } from '../../db/schema/phases';
 import { projectMembers } from '../../db/schema/project_members';
 import { projects } from '../../db/schema/projects';
 import { tasks } from '../../db/schema/tasks';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
+import { workspaceClients } from '../../db/schema/workspace_clients';
+import { BadRequestError } from '../../errors/workflow.errors';
+
+/** The name shown for the workspace's own projects (client_id NULL) */
+export const COMPANY_PROJECTS = 'Company Projects';
+
+/**
+ * Sets client_name from the chosen client: a client from the Clients section, or null for Company Projects.
+ * A new project without any client is a Company Project. An old-style typed name (no clientId) is kept as it is.
+ */
+async function withClient(tx: any, tenantId: string, input: Partial<CreateProjectInput>, creating: boolean): Promise<Partial<CreateProjectInput>> {
+  if (input.clientId === undefined) {
+    if (creating && !input.clientName?.trim()) return { ...input, clientId: null, clientName: COMPANY_PROJECTS };
+    return input;
+  }
+  if (input.clientId === null) return { ...input, clientName: COMPANY_PROJECTS };
+  const [client] = await tx.select({ id: workspaceClients.id, name: workspaceClients.name }).from(workspaceClients)
+    .where(and(eq(workspaceClients.id, input.clientId), eq(workspaceClients.tenantId, tenantId), isNull(workspaceClients.archivedAt))).limit(1);
+  if (!client) throw new BadRequestError('Choose a client from your Clients list');
+  return { ...input, clientName: client.name };
+}
 
 
 const DEFAULT_PHASES = [
@@ -25,7 +46,7 @@ const DEFAULT_PHASES = [
 export class ProjectsService {
   static async initializeProject(tx: any, tenantId: string, userId: string, ipAddress: string, input: CreateProjectInput) {
     // 1. Create the project
-    const project = await ProjectsRepository.createProject(tx, tenantId, input);
+    const project = await ProjectsRepository.createProject(tx, tenantId, await withClient(tx, tenantId, input, true) as CreateProjectInput);
 
     // 2. Generate default phases
     const phasesData: PhaseInput[] = DEFAULT_PHASES.map((phaseConfig, index) => {
@@ -219,7 +240,7 @@ export class ProjectsService {
     const oldProject = await ProjectsRepository.findProjectById(tx, tenantId, projectId);
     if (!oldProject) throw new Error('Project not found');
 
-    const updatedProject = await ProjectsRepository.updateProject(tx, tenantId, projectId, data);
+    const updatedProject = await ProjectsRepository.updateProject(tx, tenantId, projectId, await withClient(tx, tenantId, data, false));
 
     await AuditService.logAction({
       tenantId,

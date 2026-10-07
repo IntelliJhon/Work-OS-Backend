@@ -4,10 +4,13 @@ import { db } from '../../db';
 import { workReports } from '../../db/schema/work_reports';
 import { clientNotes } from '../../db/schema/client_notes';
 import { clientOnboarding } from '../../db/schema/client_onboarding';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { uploadStream } from '../uploads/cloudinary';
+import { TimeLogsService, reportOrder } from '../time-logs/time-logs.service';
+
+const FROM_TIME_LOG = "This report comes from a time entry on a project task. Change or delete it from the task in the project's Task Planner, so the hours stay correct.";
 
 export class WorkReportsController {
   /**
@@ -22,11 +25,19 @@ export class WorkReportsController {
         return res.status(400).json({ error: 'Missing tenant or employee ID' });
       }
 
+      // Your own reports; Admins and Project Managers see everyone's
+      const viewerId = req.user!.id;
+      const viewerEmail = (req.user as any)?.email?.toLowerCase();
+      const own = employeeId === viewerId || (!!viewerEmail && employeeId.toLowerCase() === viewerEmail);
+      if (!own && !(await TimeLogsService.seesEveryone(tenantId, viewerId))) {
+        return res.status(403).json({ error: "Only Admins and Project Managers can see other people's work reports" });
+      }
+
       const list = await db
         .select()
         .from(workReports)
         .where(and(eq(workReports.tenantId, tenantId), eq(workReports.employeeId, employeeId)))
-        .orderBy(desc(workReports.createdAt));
+        .orderBy(...reportOrder);
 
       return res.json({
         success: true,
@@ -184,6 +195,9 @@ export class WorkReportsController {
           error: 'Permission denied: You can only edit your own work reports, unless you are an Admin.',
         });
       }
+      if (report.taskId && report.minutes != null) {
+        return res.status(409).json({ error: FROM_TIME_LOG, code: 'from_time_log' });
+      }
 
       const { title, reportText, documentUrl: bodyDocUrl, documentName: bodyDocName } = req.body;
 
@@ -290,6 +304,9 @@ export class WorkReportsController {
         return res.status(403).json({
           error: 'Permission denied: You can only delete your own work reports, unless you are an Admin.',
         });
+      }
+      if (report.taskId && report.minutes != null) {
+        return res.status(409).json({ error: FROM_TIME_LOG, code: 'from_time_log' });
       }
 
       await db
