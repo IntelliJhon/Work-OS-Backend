@@ -4,6 +4,7 @@ import { clientActivity, workspaceClients, type ClientActivityKind, type ClientS
 import { uploads } from '../../db/schema/uploads';
 import { users } from '../../db/schema/users';
 import { projects } from '../../db/schema/projects';
+import { tasks } from '../../db/schema/tasks';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { UploadService } from '../uploads/upload.service';
 import { normalizePhone } from '../../lib/phone';
@@ -323,6 +324,35 @@ export class WorkspaceClientsService {
     const [restored] = await db.update(workspaceClients).set({ archivedAt: null, updatedBy: access.userId, updatedAt: new Date() }).where(eq(workspaceClients.id, c.id)).returning();
     await this.log(tenantId, c.id, access.userId, 'restored', `Restored ${c.name}`);
     return this.view(tenantId, restored);
+  }
+
+  /** The client's projects, newest first, with their work counts */
+  static async projects(tenantId: string, access: Access, clientId: string) {
+    this.needRead(access);
+    await this.client(tenantId, clientId, { archived: true });
+    return withTenant(tenantId, async (tx) => {
+      const rows = await tx.select({
+        id: projects.id, name: projects.name, status: projects.status, pmId: projects.pmId, createdAt: projects.createdAt,
+      }).from(projects)
+        .where(and(eq(projects.tenantId, tenantId), eq(projects.clientId, clientId), isNull(projects.deletedAt)))
+        .orderBy(desc(projects.createdAt));
+      if (!rows.length) return [];
+      const counts = await tx.select({
+        projectId: tasks.projectId,
+        open: sql<number>`count(*) filter (where ${tasks.status} <> 'done')::int`,
+        done: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
+      }).from(tasks)
+        .where(and(eq(tasks.tenantId, tenantId), inArray(tasks.projectId, rows.map((r: { id: string }) => r.id)), isNull(tasks.deletedAt)))
+        .groupBy(tasks.projectId);
+      const byProject = new Map(counts.map((c: { projectId: string | null; open: number; done: number }) => [c.projectId, c]));
+      const pms = await names(tenantId, rows.map((r: { pmId: string | null }) => r.pmId));
+      return rows.map((r: { id: string; name: string; status: string; pmId: string | null; createdAt: Date }) => ({
+        ...r,
+        pmName: r.pmId ? pms.get(r.pmId) ?? null : null,
+        openTasks: (byProject.get(r.id) as { open: number } | undefined)?.open ?? 0,
+        doneTasks: (byProject.get(r.id) as { done: number } | undefined)?.done ?? 0,
+      }));
+    });
   }
 
   // ─── Notes and activity ─────────────────────────────────────────────────────

@@ -94,6 +94,11 @@ workspaceClientsRouter.post('/:id/restore', handle(async (req, res, access) => {
   res.json({ success: true, data: await WorkspaceClientsService.restore(tenant(req), access, id.parse(req.params.id)) });
 }));
 
+// The client's projects
+workspaceClientsRouter.get('/:id/projects', handle(async (req, res, access) => {
+  res.json({ success: true, data: await WorkspaceClientsService.projects(tenant(req), access, id.parse(req.params.id)) });
+}));
+
 // Notes and the change history
 workspaceClientsRouter.get('/:id/activity', handle(async (req, res, access) => {
   const before = typeof req.query.before === 'string' && !Number.isNaN(Date.parse(req.query.before)) ? req.query.before : undefined;
