@@ -17,20 +17,17 @@ const BATCH = 20;
 const MAX_LEN = 200;
 
 interface Address {
-  amenity?: string; building?: string; office?: string; shop?: string; tourism?: string;
-  road?: string; neighbourhood?: string; suburb?: string; quarter?: string; hamlet?: string; village?: string;
-  town?: string; city?: string; municipality?: string; county?: string; state_district?: string; state?: string;
+  village?: string; town?: string; city?: string; municipality?: string; county?: string; state_district?: string; state?: string;
 }
 
-/** A short, readable name: the place (if it has one), the area, and the town or city */
-export function placeName(result: { name?: string; address?: Address } | null | undefined): string {
+/** Town and district only, e.g. "Thalayolaparambu, Kottayam" (one name when they are the same, e.g. "Coimbatore") */
+export function placeName(result: { address?: Address } | null | undefined): string {
   if (!result?.address) return '';
   const a = result.address;
-  const place = result.name || a.amenity || a.building || a.office || a.shop || a.tourism || '';
-  const area = a.neighbourhood || a.suburb || a.quarter || a.hamlet || a.village || a.road || '';
-  const town = a.city || a.town || a.municipality || a.county || a.state_district || a.state || '';
+  const town = a.city || a.town || a.village || a.municipality || a.county || '';
+  const district = (a.state_district || a.county || a.state || '').replace(/\s+district$/i, '');
   const parts: string[] = [];
-  for (const p of [place, area, town]) {
+  for (const p of [town, district]) {
     const t = p.trim();
     if (t && !parts.some((x) => x.toLowerCase() === t.toLowerCase())) parts.push(t);
   }
@@ -47,7 +44,7 @@ export const geocoder = {
     const url = `${LOOKUP_URL}?format=jsonv2&zoom=17&addressdetails=1&accept-language=en&lat=${lat}&lon=${lng}`;
     const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`Place lookup answered ${res.status}`);
-    return placeName((await res.json()) as { name?: string; address?: Address });
+    return placeName((await res.json()) as { address?: Address });
   },
 };
 
