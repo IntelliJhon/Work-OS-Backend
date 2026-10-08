@@ -7,6 +7,7 @@ import { users } from '../../db/schema/users';
 import { withTenant } from '../../middleware/tenant.middleware';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UploadService } from '../uploads/upload.service';
+import { getPlayableAudioUrl } from '../uploads/cloudinary';
 import { getIoInstance } from '../../socket/socketServer';
 import { getUserRoom } from '../../socket/tenantRooms';
 import { logger } from '../../config/logger';
@@ -39,7 +40,16 @@ export const FILE_TYPES = [
   'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain', 'text/csv', 'application/zip', 'application/x-zip-compressed',
+  // Audio: voice messages recorded in the browser (Android WebM/Ogg, iPhone MP4/AAC) and shared audio files
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/aac', 'audio/x-m4a', 'audio/wav', 'audio/x-wav',
 ];
+
+/** 'audio/webm;codecs=opus' → 'audio/webm' (browsers add codec details to recordings) */
+export const baseType = (mime: string) => mime.split(';')[0].trim().toLowerCase();
+
+/** A voice message can be at most this long (the recorder stops itself at 5 minutes) */
+export const MAX_VOICE_MS = 5 * 60_000 + 5_000;
+const VOICE_EXT: Record<string, string> = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
 
 const fullName = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`.trim();
 
@@ -294,19 +304,27 @@ export class GroupsService {
     return { messages: page.map((m) => this.view(m, everyone, replies)), more };
   }
 
-  static async send(tenantId: string, actorId: string, groupId: string, input: { body?: string; mentions?: string[]; files?: Express.Multer.File[]; replyToId?: string | null }) {
+  static async send(tenantId: string, actorId: string, groupId: string, input: { body?: string; mentions?: string[]; files?: Express.Multer.File[]; replyToId?: string | null; voiceDurationMs?: number | null }) {
     const { g, list, everyone } = await this.access(tenantId, actorId, groupId);
     const body = (input.body ?? '').trim();
     const files = input.files ?? [];
     if (!body && !files.length) throw new GroupError(400, 'empty', 'Write a message or attach a file');
     if (body.length > MAX_BODY) throw new GroupError(400, 'too_long', `A message can be at most ${MAX_BODY} characters`);
-    const bad = files.find((f) => !FILE_TYPES.includes(f.mimetype));
+    const bad = files.find((f) => !FILE_TYPES.includes(baseType(f.mimetype)));
     if (bad) throw new GroupError(400, 'file_type', `${bad.originalname}: this file type can't be shared`);
+    const voice = input.voiceDurationMs != null;
+    if (voice) {
+      if (files.length !== 1 || !baseType(files[0].mimetype).startsWith('audio/')) throw new GroupError(400, 'voice', 'A voice message is one recording');
+      if (!(input.voiceDurationMs! > 0) || input.voiceDurationMs! > MAX_VOICE_MS) throw new GroupError(400, 'voice_length', 'A voice message can be at most 5 minutes');
+    }
 
     const attachments: ChatAttachment[] = [];
     for (const file of files) {
       const up = await UploadService.processUpload({ tenantId, uploaderId: actorId, entityType: 'GROUP', entityId: groupId, file });
-      attachments.push({ uploadId: up.id, name: file.originalname, mimeType: file.mimetype, size: file.size });
+      const mimeType = baseType(file.mimetype);
+      attachments.push(voice
+        ? { uploadId: up.id, name: `Voice message.${VOICE_EXT[mimeType] ?? 'webm'}`, mimeType, size: file.size, voice: true, durationMs: Math.round(input.voiceDurationMs!) }
+        : { uploadId: up.id, name: file.originalname, mimeType, size: file.size });
     }
     let replyToId: string | null = null;
     if (input.replyToId) {
@@ -331,7 +349,7 @@ export class GroupsService {
           await NotificationsService.notify({
             tenantId, recipientUserId: userId, actorUserId: actorId, type: 'group_mention', entityType: 'group', entityId: groupId,
             title: `${sender ? fullName(sender) : 'Someone'} mentioned you in ${g.name}`,
-            message: (body || attachments.map((a) => a.name).join(', ')).slice(0, 200), priority: 'info',
+            message: (body || attachments.map((a) => (a.voice ? 'Voice message' : a.name)).join(', ')).slice(0, 200), priority: 'info',
           }, tx);
         }
       }).catch((err) => logger.warn({ err }, '[Groups] Mention notification failed'));
@@ -440,6 +458,8 @@ export class GroupsService {
       tx.select().from(uploads).where(and(eq(uploads.id, uploadId), eq(uploads.tenantId, tenantId), eq(uploads.entityType, 'GROUP'), eq(uploads.entityId, groupId))),
     );
     if (!f) throw new GroupError(404, 'not_found', 'File not found');
+    // Audio plays in the chat: a link that works in every browser
+    if (baseType(f.mimeType).startsWith('audio/')) return { url: getPlayableAudioUrl(f.storageKey), playable: true };
     return { url: await UploadService.getSignedDownloadUrl(tenantId, uploadId) };
   }
 

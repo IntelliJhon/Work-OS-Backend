@@ -45,13 +45,31 @@ export const uploadStream = (buffer: Buffer, folder: string, originalName: strin
   });
 };
 
+/** Cloudinary's storage class for a file: images (and PDFs) as image, audio and video as video, the rest raw */
+export const resourceTypeFor = (mimeType: string): 'image' | 'video' | 'raw' => {
+  const base = mimeType.split(';')[0].trim().toLowerCase();
+  if (base.startsWith('image/') || base === 'application/pdf') return 'image';
+  if (base.startsWith('audio/') || base.startsWith('video/')) return 'video';
+  return 'raw';
+};
+
+/**
+ * A signed link that plays an audio file in any browser: Cloudinary converts it to MP3 on the fly, so a recording
+ * made on Android (WebM) also plays on an iPhone, and the other way round.
+ */
+export const getPlayableAudioUrl = (storageKey: string): string => {
+  if (!env.CLOUDINARY_URL) {
+    throw new Error('CLOUDINARY_URL is not configured');
+  }
+  return cloudinary.url(storageKey, { resource_type: 'video', type: 'upload', format: 'mp3', secure: true, sign_url: true });
+};
+
 export const getSignedDownloadUrl = (storageKey: string, mimeType: string, originalName: string): string => {
   if (!env.CLOUDINARY_URL) {
     throw new Error('CLOUDINARY_URL is not configured');
   }
 
-  const isRaw = !mimeType.startsWith('image/') && mimeType !== 'application/pdf';
-  const resourceType = isRaw ? 'raw' : 'image';
+  const resourceType = resourceTypeFor(mimeType);
   const ext = originalName.split('.').pop()?.toLowerCase() || '';
 
   return cloudinary.utils.private_download_url(storageKey, ext, {
@@ -67,8 +85,7 @@ export const deleteFile = (storageKey: string, mimeType: string): Promise<any> =
       return reject(new Error('CLOUDINARY_URL is not configured'));
     }
 
-    const isRaw = !mimeType.startsWith('image/') && mimeType !== 'application/pdf';
-    const resourceType = isRaw ? 'raw' : 'image';
+    const resourceType = resourceTypeFor(mimeType);
 
     cloudinary.uploader.destroy(
       storageKey,

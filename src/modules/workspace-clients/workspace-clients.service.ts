@@ -9,7 +9,7 @@ import { withTenant } from '../../middleware/tenant.middleware';
 import { UploadService } from '../uploads/upload.service';
 import { normalizePhone } from '../../lib/phone';
 import { logger } from '../../config/logger';
-import { FILE_TYPES } from '../groups/groups.service';
+import { FILE_TYPES, baseType } from '../groups/groups.service';
 
 /**
  * The Clients section: the companies a workspace works for. Everyone with client.read sees clients and adds notes;
@@ -423,7 +423,7 @@ export class WorkspaceClientsService {
     this.needManage(access);
     await this.client(tenantId, clientId);
     if (!files.length) throw new ClientError(400, 'files', 'Choose at least one file');
-    const bad = files.find((f) => !FILE_TYPES.includes(f.mimetype));
+    const bad = files.find((f) => !FILE_TYPES.includes(baseType(f.mimetype)));
     if (bad) throw new ClientError(400, 'file_type', `"${bad.originalname}" can't be added. Use PDF, images, Word, Excel, PowerPoint, text, CSV or ZIP files.`);
     const added = [];
     for (const file of files) {

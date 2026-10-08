@@ -106,7 +106,9 @@ groupsRouter.post('/:id/messages', readFiles as any, handle(async (req, res) => 
   const parsedMentions = z.array(z.string().uuid()).max(100).catch([]).parse(mentions ?? []);
   const files = ((req as any).files ?? []) as Express.Multer.File[];
   const replyToId = typeof req.body?.replyToId === 'string' && req.body.replyToId ? id.parse(req.body.replyToId) : null;
-  res.status(201).json({ success: true, data: await GroupsService.send(who(req).tenantId, who(req).userId, id.parse(req.params.id), { body, mentions: parsedMentions, files, replyToId }) });
+  // Set for a voice message recorded in the chat: its length in milliseconds
+  const voiceDurationMs = req.body?.voiceDurationMs != null && req.body.voiceDurationMs !== '' ? Number(req.body.voiceDurationMs) : null;
+  res.status(201).json({ success: true, data: await GroupsService.send(who(req).tenantId, who(req).userId, id.parse(req.params.id), { body, mentions: parsedMentions, files, replyToId, voiceDurationMs }) });
 }));
 groupsRouter.delete('/:id/messages/:messageId', handle(async (req, res) => {
   res.json({ success: true, data: await GroupsService.deleteMessage(who(req).tenantId, who(req).userId, id.parse(req.params.id), id.parse(req.params.messageId)) });

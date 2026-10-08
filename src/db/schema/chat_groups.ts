@@ -4,7 +4,15 @@ import { users } from './users';
 
 // Company group chats (migration 0040). No RLS: every query filters by tenant_id and checks membership.
 
-export interface ChatAttachment { uploadId: string; name: string; mimeType: string; size: number }
+export interface ChatAttachment {
+  uploadId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  // A voice message recorded in the chat (played inline), and its length
+  voice?: boolean;
+  durationMs?: number;
+}
 
 export const chatGroups = pgTable('chat_groups', {
   id: uuid('id').primaryKey().defaultRandom(),
