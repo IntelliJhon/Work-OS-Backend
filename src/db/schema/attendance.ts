@@ -40,6 +40,8 @@ export const attendanceRecords = pgTable('attendance_records', {
   accuracyM: real('accuracy_m'),
   // ok | denied | unavailable (null for entries made by an admin)
   locationStatus: varchar('location_status', { length: 20 }),
+  // Place name of the location, looked up after the check-in (NULL = not yet, '' = none found; migration 0044)
+  locationName: varchar('location_name', { length: 200 }),
   note: text('note'),
   // Half a day of leave (first | second); the day's check-in is kept
   leaveHalf: varchar('leave_half', { length: 10 }),

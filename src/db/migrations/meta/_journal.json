@@ -309,6 +309,13 @@
       "when": 1791700000000,
       "tag": "0043_project_clients_time_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0044_attendance_location_name",
+      "breakpoints": true
     }
   ]
 }
