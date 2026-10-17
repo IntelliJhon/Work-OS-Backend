@@ -219,9 +219,15 @@ export async function getTask(tenantId: string, workId: string) {
 export async function attendanceDay(tenantId: string, date?: string) {
   checkDay('date', date);
   const d = await AttendanceService.day(tenantId, date ?? today());
+  const counts: Record<string, number> = {};
+  d.people.forEach((p) => { counts[p.state] = (counts[p.state] ?? 0) + 1; });
+  const s = d.settings;
   return {
     date: d.day,
     holiday: d.holiday,
+    // How the states are decided, so a check-in like 5 pm can be explained
+    rules: `Present · Early before ${s.earlyBefore}; Present until ${s.lateAfter}; Late after that; no check-in by ${s.absentAfter} = Absent (a check-in after ${s.absentAfter} still counts as Absent). Working days (1 = Monday): ${s.workingDays.join(', ')}.`,
+    counts,
     people: d.people.map((p) => ({
       name: p.name,
       state: p.state,
