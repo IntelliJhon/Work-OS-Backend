@@ -16,6 +16,7 @@ import { WorkStatusService } from './work-status.service';
 import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import type { WhatsAppSender } from '../../services/whatsapp.service';
 import { SectionsService } from '../sections/sections.service';
+import { WorkOsAgent } from '../mcp/work-os-agent';
 
 /** Constant-time secret comparison (hashing first makes lengths equal). */
 const secretMatches = (provided: unknown, expected: string) => {
@@ -227,6 +228,18 @@ export class VoiceIntegrationController {
       const found = await tenantForBot(phone, body.botId);
       if ('result' in found) return found.result;
       const { tenant } = found;
+      // A question in words: the AI answers it from this workspace's data (falls back to the fixed replies)
+      if (body.question && WorkOsAgent.available()) {
+        try {
+          const answer = await WorkOsAgent.answer(tenant.id, body.question);
+          if (answer) {
+            logger.info({ tenantId: tenant.id }, '[VoiceIntegration] Question answered by the AI');
+            return { status: 200, payload: { success: true, code: 'work_status', workspace: tenant.name, text: answer } };
+          }
+        } catch (err) {
+          logger.warn({ err, tenantId: tenant.id }, '[VoiceIntegration] AI answer failed; using the fixed reply');
+        }
+      }
       const text = await WorkStatusService.answer(tenant.id, {
         queryType: body.queryType,
         workNumber: body.workNumber,

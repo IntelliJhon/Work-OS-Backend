@@ -82,6 +82,8 @@ export const workStatusQuerySchema = z.object({
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
     status: z.enum(['open', 'done', 'overdue', 'all']).nullish(),
+    // The question as asked (any language); when given, Work OS's AI answers it from the workspace's data
+    question: z.string().trim().max(2000).nullish(),
     // Phone number ID of the WhatsApp bot the message came through (omitted = platform default bot)
     botId: z.string().trim().regex(/^\d{5,30}$/).nullish(),
     replyMode: z.enum(['whatsapp']).optional(),

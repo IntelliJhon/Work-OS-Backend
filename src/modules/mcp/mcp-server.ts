@@ -17,9 +17,9 @@ const limit = z.number().int().min(1).max(data.MAX_ROWS).optional().describe(`Ho
 const person = z.string().min(1).describe('A person\'s name or email (part of the name works)');
 
 type Shape = Record<string, z.ZodTypeAny>;
-interface ToolDef { section: McpSection | null; title: string; description: string; input: Shape; run: (ctx: McpContext, args: any) => Promise<unknown> }
+export interface ToolDef { section: McpSection | null; title: string; description: string; input: Shape; run: (ctx: McpContext, args: any) => Promise<unknown> }
 
-const TOOLS: Record<string, ToolDef> = {
+export const TOOLS: Record<string, ToolDef> = {
   workspace_overview: {
     section: null, title: 'Workspace overview',
     description: 'Today at a glance for the whole workspace: members, task counts by status, overdue work, today\'s attendance, leave waiting for approval, reminders due, clients. Start here.',
