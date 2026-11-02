@@ -3,6 +3,7 @@ import { db } from '../../db';
 import { attendanceRecords } from '../../db/schema/attendance';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { everyRound } from '../../jobs/background-clock';
 
 /**
  * Place names for check-in locations ("Kakkanad, Kochi"), from OpenStreetMap's free reverse lookup (Nominatim).
@@ -89,20 +90,9 @@ export async function nameCheckInLocations(limit = BATCH) {
 
 export function startLocationNames() {
   if (env.TASK_REMINDERS_ENABLED === 'false') return;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try {
-      const n = await nameCheckInLocations();
-      if (n) logger.info({ named: n }, '[Attendance] Named check-in locations');
-    } catch (err) {
-      logger.error({ err }, '[Attendance] Naming check-in locations failed');
-    } finally {
-      running = false;
-    }
-  };
-  setTimeout(tick, 25_000);
-  setInterval(tick, 30_000);
+  everyRound('attendance place names', async () => {
+    const n = await nameCheckInLocations();
+    if (n) logger.info({ named: n }, '[Attendance] Named check-in locations');
+  });
   logger.info('[Attendance] Check-in locations get place names from OpenStreetMap');
 }

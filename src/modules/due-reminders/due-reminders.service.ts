@@ -16,6 +16,7 @@ import { WhatsAppBotsService } from '../whatsapp-bots/whatsapp-bots.service';
 import { maskPhone } from '../../lib/phone';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { everyRound } from '../../jobs/background-clock';
 
 /**
  * Reminders for bills, renewals, subscriptions, taxes…
@@ -445,23 +446,12 @@ export class DueRemindersService {
   }
 }
 
-/** Every minute in the API process (off with TASK_REMINDERS_ENABLED=false, like the other reminders) */
+/** In each background round (off with TASK_REMINDERS_ENABLED=false, like the other reminders) */
 export function startDueReminders() {
   if (env.TASK_REMINDERS_ENABLED === 'false') return;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try {
-      await DueRemindersService.sendDue();
-      await DueRemindersService.escalateOverdue();
-    } catch (err) {
-      logger.error({ err }, '[DueReminders] Check failed');
-    } finally {
-      running = false;
-    }
-  };
-  setTimeout(tick, 15_000);
-  setInterval(tick, 60_000);
-  logger.info('[DueReminders] Checking bill/renewal reminders every minute');
+  everyRound('bill/renewal reminders', async () => {
+    await DueRemindersService.sendDue();
+    await DueRemindersService.escalateOverdue();
+  });
+  logger.info('[DueReminders] Checking bill/renewal reminders in each background round');
 }

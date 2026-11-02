@@ -64,6 +64,13 @@ const envSchema = z.object({
   DAILY_LOGOUT_TIME: z.string().optional().default('00:00'),
   // 'false' stops this process from sending work reminders (e.g. a local server on the production database)
   TASK_REMINDERS_ENABLED: z.string().optional().default('true'),
+  // 'true' polls the complaints Google Sheet every minute for WhatsApp alerts (off: clients phone in directly)
+  COMPLAINTS_SHEET_POLLING: z.string().optional().default('false'),
+  // Background checks run together every N minutes, and not at night (local hours FROM–UNTIL), so the
+  // database can sleep in between. Task reminders still go out at their exact time.
+  BACKGROUND_EVERY_MIN: z.coerce.number().int().min(1).max(60).optional().default(15),
+  BACKGROUND_NIGHT_FROM: z.coerce.number().int().min(0).max(23).optional().default(22),
+  BACKGROUND_NIGHT_UNTIL: z.coerce.number().int().min(0).max(23).optional().default(7),
   // How long a voice note waits for the owner to name the employee
   VOICE_ASSIGNEE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).optional().default(30),
   // Used to resolve spoken dates/times ("tomorrow at 5") and to format due dates in messages

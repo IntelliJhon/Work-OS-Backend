@@ -7,6 +7,7 @@ import { getIoInstance } from '../../socket/socketServer';
 import { getTenantRoom } from '../../socket/tenantRooms';
 import { LEADSNDEALS_TENANT_ID } from '../../middleware/company.middleware';
 import { logger } from '../../config/logger';
+import { env } from '../../config/env';
 
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_COMPLAINTS_URL || 'https://script.google.com/macros/s/AKfycbwEIj1gZusldwBYtIx4WeiLE9vBpZgpYiDqUVLvytP4AgBdsfSIuvqHtUvkGOidqx3iCQ/exec';
 
@@ -41,6 +42,9 @@ export class ComplaintsController {
    * If DB query fails, it returns the in-memory cache if initialized, or null to signal failure.
    */
   private static async getAlertedTicketIds(): Promise<Set<string> | null> {
+    // Loaded once; after that new alerts are added to the cache as they are recorded. The sheet is polled
+    // every minute, and reading the table each time kept the database awake around the clock.
+    if (ComplaintsController.isDbInitialized) return ComplaintsController.knownAlertedTickets;
     try {
       const result = await db.execute(sql`SELECT ticket_id FROM alerted_complaint_tickets`);
       if (result && Array.isArray(result.rows)) {
@@ -256,6 +260,10 @@ let isPollingStarted = false;
 let isSyncing = false;
 
 export function startGoogleSheetPolling() {
+  if (env.COMPLAINTS_SHEET_POLLING !== 'true') {
+    logger.info('[ComplaintsController] Google Sheet polling is off (COMPLAINTS_SHEET_POLLING)');
+    return;
+  }
   if (isPollingStarted) return;
   isPollingStarted = true;
   logger.info('[ComplaintsController] 🚀 Started Google Sheet auto-sync background polling (every 60s)');

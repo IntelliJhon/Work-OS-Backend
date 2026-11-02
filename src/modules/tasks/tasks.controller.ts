@@ -13,6 +13,7 @@ import { logger } from '../../config/logger';
 import { WebhookService } from '../../services/webhook.service';
 import { createTaskInTx } from './tasks.service';
 import { scheduleForUpdate } from '../calendar/task-schedule';
+import { wakeForReminder } from '../calendar/task-reminders.service';
 import { voiceNotes } from '../../db/schema/voice_notes';
 import { emitToTenant } from '../voice-notes/voice-notes.controller';
 import { taskScope, visibleTasks } from './task-visibility';
@@ -133,6 +134,7 @@ export class TasksController {
           .set({ ...allowedUpdates, ...completedAtUpdate, updatedAt: new Date() })
           .where(eq(tasks.id, id))
           .returning();
+        wakeForReminder(updatedTask.remindAt);
 
         // Audit Logging with oldValue and newValue to trace state transitions
         await AuditService.logAction({

@@ -4,6 +4,7 @@ import { NotificationEvents } from '../notifications/notifications.events';
 import { getIoInstance } from '../../socket/socketServer';
 import { logger } from '../../config/logger';
 import { scheduleFromCustomFields } from '../calendar/task-schedule';
+import { wakeForReminder } from '../calendar/task-reminders.service';
 
 export interface CreateTaskOptions {
   tenantId: string;
@@ -30,6 +31,7 @@ export async function createTaskInTx(tx: any, { tenantId, actorUserId, actorName
     ...scheduleFromCustomFields(values.customFields),
     completedAt,
   }).returning();
+  wakeForReminder(newTask.remindAt);
 
   await AuditService.logAction({
     tenantId,

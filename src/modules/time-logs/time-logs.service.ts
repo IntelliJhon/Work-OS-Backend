@@ -15,6 +15,7 @@ import { formatWorkId } from '../tasks/tasks.service';
 import { canSeeTask, taskScope } from '../tasks/task-visibility';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { everyRound } from '../../jobs/background-clock';
 
 /**
  * Time worked on project tasks. The person a project task is assigned to logs, for each day, how long they worked
@@ -334,20 +335,7 @@ export class TimeLogsService {
 
 export function startTimeLogReminders() {
   if (env.TASK_REMINDERS_ENABLED === 'false') return;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try {
-      await TimeLogsService.remindToday();
-    } catch (err) {
-      logger.error({ err }, '[TimeLogs] Reminder check failed');
-    } finally {
-      running = false;
-    }
-  };
-  setTimeout(tick, 20_000);
-  setInterval(tick, 5 * 60_000);
+  everyRound('time log reminders', () => TimeLogsService.remindToday());
   logger.info('[TimeLogs] "Log your time" reminders from 6 pm on working days');
 }
 

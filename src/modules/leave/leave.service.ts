@@ -15,6 +15,7 @@ import { formatDueLabel } from '../calendar/task-schedule';
 import { maskPhone } from '../../lib/phone';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { everyRound } from '../../jobs/background-clock';
 
 /**
  * Leave requests.
@@ -470,22 +471,9 @@ export class LeaveService {
   }
 }
 
-/** Every 5 minutes in the API process (with the task reminders; off when TASK_REMINDERS_ENABLED=false) */
+/** In each background round (with the task reminders; off when TASK_REMINDERS_ENABLED=false) */
 export function startLeaveEscalation() {
   if (env.TASK_REMINDERS_ENABLED === 'false') return;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try {
-      await LeaveService.escalateOverdue();
-    } catch (err) {
-      logger.error({ err }, '[Leave] Escalation check failed');
-    } finally {
-      running = false;
-    }
-  };
-  setTimeout(tick, 20_000);
-  setInterval(tick, 5 * 60_000);
-  logger.info(`[Leave] Requests undecided for ${env.LEAVE_ESCALATION_HOURS} h go to the Admins (checked every 5 minutes)`);
+  everyRound('leave escalation', () => LeaveService.escalateOverdue());
+  logger.info(`[Leave] Requests undecided for ${env.LEAVE_ESCALATION_HOURS} h go to the Admins`);
 }
