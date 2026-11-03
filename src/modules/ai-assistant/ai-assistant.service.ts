@@ -14,7 +14,6 @@ import { SectionsService } from '../sections/sections.service';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { AI_TOOLS, toolDefinitions, type AiToolName, type ToolContext } from './ai-tools';
-import { CompanyMailService } from '../company-mail/company-mail.service';
 
 /**
  * The in-app AI assistant: a chat with Claude per person, with tools for leads and proposals. The history is stored
@@ -175,8 +174,7 @@ export class AiAssistantService {
       'You help with leads and proposals: find and add leads, update them, move them through the stages (Lead created, Contacted, Requirement collected, Proposal sent, Follow up, Accepted, Rejected), add notes, attach a proposal file the user shares, and prepare it to be sent to the client on WhatsApp.',
       'Use the tools for every fact and change; never guess names, numbers, ids or dates. Find a lead before acting on it; if several match or the request is unclear, ask.',
       'When the user shares a proposal PDF, read it: use it to find or fill in the lead (client name, company, service, amount) and attach it with attach_proposal.',
-      'You can also write emails from the company address with prepare_email (for a lead, attach its proposal).',
-      'Sending to a client (WhatsApp or email) only shows the user a Send / Cancel card. Never say anything was sent unless a "[Work OS]" note in the chat says the user clicked Send and it went out.',
+      'Sending to a client only shows the user a Send / Cancel card. Never say anything was sent unless a "[Work OS]" note in the chat says the user clicked Send and it went out. You cannot send email.',
       'If a tool says the user\'s role cannot do something, explain that plainly.',
       'Each user message starts with "[Now: …]", the date and time it was written (India time); use it for "today", "tomorrow" and follow-up times.',
       'Reply briefly in the user\'s language, as plain chat text (short lines or "• " lists, no tables).',
@@ -254,7 +252,8 @@ export class AiAssistantService {
     const [claimed] = await db.update(aiActions).set({ status: 'done', decidedAt: new Date() })
       .where(and(eq(aiActions.id, a.id), eq(aiActions.status, 'pending'))).returning();
     if (!claimed) throw new AiError(409, 'decided', 'This was already handled');
-    if (a.kind === 'send_email') return this.confirmEmail(asker, a);
+    // Email cards from when company email was on can no longer be sent
+    if (a.kind === 'send_email') throw new AiError(410, 'email_off', 'Sending email from Work OS is turned off');
     const p = a.payload as { leadId: string; leadName: string; proposalId: string; version: number; fileName: string };
     let result: string;
     let ok = false;
@@ -271,26 +270,6 @@ export class AiAssistantService {
         : `Proposal v${p.version} could not be sent on WhatsApp: ${sent.error}`;
     } catch (err) {
       result = `Proposal v${p.version} was not sent: ${errorText(err)}`;
-    }
-    await db.update(aiActions).set({ status: ok ? 'done' : 'failed', result }).where(eq(aiActions.id, a.id));
-    await this.note(asker, a.conversationId, `The user clicked Send. ${result}`);
-    return this.view(asker, a.conversationId);
-  }
-
-  private static async confirmEmail(asker: Asker, a: typeof aiActions.$inferSelect) {
-    const p = a.payload as { to: string[]; cc: string[]; subject: string; body: string; leadId: string | null; attachments: { uploadId: string; name: string }[] };
-    let result: string;
-    let ok = false;
-    try {
-      const access = await leadAccess(asker);
-      if (!access.manage) throw new LeadError(403, 'forbidden', 'Your role cannot send company email');
-      const sent = await CompanyMailService.send(asker.tenantId, asker.userId, {
-        to: p.to, cc: p.cc, subject: p.subject, body: p.body, leadId: p.leadId, uploadIds: p.attachments.map((x) => x.uploadId), via: 'ai',
-      });
-      ok = true;
-      result = `The email "${p.subject}" was sent to ${sent.to.join(', ')}${sent.savedToSent ? ' (a copy is in the Sent folder)' : ''}.`;
-    } catch (err) {
-      result = `The email "${p.subject}" was not sent: ${err instanceof Error ? err.message : 'unknown error'}`;
     }
     await db.update(aiActions).set({ status: ok ? 'done' : 'failed', result }).where(eq(aiActions.id, a.id));
     await this.note(asker, a.conversationId, `The user clicked Send. ${result}`);

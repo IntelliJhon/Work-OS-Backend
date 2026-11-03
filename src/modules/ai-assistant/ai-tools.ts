@@ -3,10 +3,9 @@ import { and, desc, eq } from 'drizzle-orm';
 import type Anthropic from '@anthropic-ai/sdk';
 import { db } from '../../db';
 import { aiActions, aiFiles } from '../../db/schema/ai_assistant';
-import { LEAD_SOURCES, LEAD_STAGES, REJECT_REASONS, leadProposals } from '../../db/schema/leads';
+import { LEAD_SOURCES, LEAD_STAGES, REJECT_REASONS } from '../../db/schema/leads';
 import { LeadError, LeadsService, STAGE_LABELS, type Access } from '../leads/leads.service';
 import { formatLeadPhone } from './ai-format';
-import { CompanyMailService } from '../company-mail/company-mail.service';
 
 /**
  * What the assistant can do, as Claude tools. Each runs with the asking person's own lead permissions (lead.read /
@@ -213,58 +212,6 @@ export const AI_TOOLS = {
 
 export type AiToolName = keyof typeof AI_TOOLS;
 
-/** The email tool joins the lead tools: same rules, a card the user confirms */
-Object.assign(AI_TOOLS, {
-  prepare_email: tool({
-    description: [
-      'Write an email from the company address (e.g. info@) and show it to the user as a Send / Cancel card. It is sent only when they click Send.',
-      "For a lead, pass lead_id: \"to\" defaults to the lead's email, and the email is logged on the lead. Attach a proposal with attach_proposal_version and/or files shared in this chat with file_ids.",
-      "Write a complete, polite, ready-to-send email (greeting, short body, sign-off with the user's name); the company signature is added automatically. Never say it was sent.",
-    ].join(' '),
-    input: {
-      lead_id: z.string().uuid().optional(),
-      to: z.array(z.string().email()).max(20).optional().describe("Recipients; default: the lead's email"),
-      cc: z.array(z.string().email()).max(20).optional(),
-      subject: z.string().min(1).max(300),
-      body: z.string().min(1).max(20000).describe('Plain text'),
-      attach_proposal_version: z.number().int().min(1).optional().describe('Attach this proposal version of the lead (its file)'),
-      file_ids: z.array(z.string().uuid()).max(5).optional().describe('Chat file ids to attach'),
-    },
-    label: ({ subject }) => `Wrote an email: ${subject}`,
-    run: async (ctx, a) => {
-      if (!ctx.access.manage) throw new LeadError(403, 'forbidden', 'Your role cannot send company email');
-      const mail = await CompanyMailService.status(ctx.tenantId);
-      if (!mail.configured) throw new LeadError(400, 'mail', 'Company email is not set up yet (an Admin adds it in Settings → Company email)');
-      let leadName: string | null = null;
-      let to: string[] = a.to ?? [];
-      const attachments: { uploadId: string; name: string }[] = [];
-      if (a.lead_id) {
-        const l = await LeadsService.get(ctx.tenantId, ctx.access, a.lead_id);
-        leadName = l.name;
-        if (!to.length && l.email) to = [l.email];
-        if (a.attach_proposal_version) {
-          const p = (await LeadsService.proposals(ctx.tenantId, ctx.access, a.lead_id)).find((x) => x.version === a.attach_proposal_version);
-          if (!p) throw new LeadError(400, 'proposal', `This lead has no proposal v${a.attach_proposal_version}`);
-          const [row] = await db.select({ uploadId: leadProposals.uploadId }).from(leadProposals).where(eq(leadProposals.id, p.id)).limit(1);
-          if (!row?.uploadId || !p.file) throw new LeadError(400, 'file', `Proposal v${p.version} has no file to attach`);
-          attachments.push({ uploadId: row.uploadId, name: p.file.name });
-        }
-      } else if (a.attach_proposal_version) {
-        throw new LeadError(400, 'lead', 'Give the lead to attach its proposal');
-      }
-      for (const fileId of a.file_ids ?? []) {
-        const f = await chatFile(ctx, fileId);
-        attachments.push({ uploadId: f.uploadId!, name: f.name });
-      }
-      if (!to.length) throw new LeadError(400, 'to', 'No email address: ask the user who to send it to');
-      await db.insert(aiActions).values({
-        tenantId: ctx.tenantId, conversationId: ctx.conversationId, userId: ctx.access.userId, kind: 'send_email',
-        payload: { to, cc: a.cc ?? [], subject: a.subject, body: a.body, leadId: a.lead_id ?? null, leadName, attachments, from: mail.fromEmail },
-      });
-      return { waitingForUser: true, message: `An email card (to ${to.join(', ')}, "${a.subject}") is shown to the user. It is sent only when they click Send.` };
-    },
-  }),
-});
 
 /** Tool definitions for Claude */
 export function toolDefinitions(): Anthropic.Beta.BetaTool[] {
