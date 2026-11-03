@@ -569,6 +569,7 @@ export class LeadsService {
       amount: r.amount,
       note: r.note,
       file: r.uploadId ? files.get(r.uploadId) ?? null : null,
+      uploadId: r.uploadId,
       whatsappSentAt: r.whatsappSentAt,
       whatsappError: r.whatsappError,
       createdAt: r.createdAt,
@@ -585,12 +586,24 @@ export class LeadsService {
       throw new LeadError(400, 'file_type', `"${file.originalname}" can't be added. Use PDF, images, Word, Excel or PowerPoint files.`);
     }
     const up = file ? await UploadService.processUpload({ tenantId, uploaderId: access.userId, entityType: LEAD_FILE_ENTITY, entityId: leadId, file }) : null;
+    return this.saveProposal(tenantId, access, l, { uploadId: up?.id ?? null, fileName: file?.originalname ?? null, amount: input.amount, note: input.note });
+  }
+
+  /** A proposal from a file already uploaded to Work OS (e.g. shared in the AI assistant chat) */
+  static async addProposalFromUpload(tenantId: string, access: Access, leadId: string, upload: { id: string; name: string }, input: { amount: number | null; note: string | null }) {
+    this.needManage(access);
+    const l = await this.lead(tenantId, leadId);
+    return this.saveProposal(tenantId, access, l, { uploadId: upload.id, fileName: upload.name, amount: input.amount, note: input.note });
+  }
+
+  private static async saveProposal(tenantId: string, access: Access, l: Lead, input: { uploadId: string | null; fileName: string | null; amount: number | null; note: string | null }) {
+    const leadId = l.id;
     const [{ next }] = await db.select({ next: sql<number>`coalesce(max(${leadProposals.version}), 0)::int + 1` }).from(leadProposals)
       .where(and(eq(leadProposals.leadId, leadId), eq(leadProposals.tenantId, tenantId)));
     const [p] = await db.insert(leadProposals).values({
-      tenantId, leadId, version: next, amount: money(input.amount) ?? null, uploadId: up?.id ?? null, note: blankToNull(input.note) ?? null, createdBy: access.userId,
+      tenantId, leadId, version: next, amount: money(input.amount) ?? null, uploadId: input.uploadId, note: blankToNull(input.note) ?? null, createdBy: access.userId,
     }).returning();
-    const what = [file?.originalname, input.amount !== null ? rupees(input.amount) : null].filter(Boolean).join(', ');
+    const what = [input.fileName, input.amount !== null ? rupees(input.amount) : null].filter(Boolean).join(', ');
     await this.log(tenantId, leadId, access.userId, 'proposal', `Added proposal v${p.version}${what ? ` (${what})` : ''}`, { version: p.version, amount: p.amount });
     await db.update(leads).set({ autoFollowUpsSent: 0 }).where(eq(leads.id, l.id));
     // The proposal amount is the best guess of the deal's value

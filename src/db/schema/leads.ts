@@ -13,7 +13,7 @@ export const LEAD_SOURCES = ['manual', 'whatsapp', 'website', 'referral', 'call'
 export type LeadSource = typeof LEAD_SOURCES[number];
 export const REJECT_REASONS = ['price', 'timing', 'competitor', 'no_response', 'not_needed', 'other'] as const;
 export type RejectReason = typeof REJECT_REASONS[number];
-export type LeadActivityKind = 'note' | 'created' | 'updated' | 'stage' | 'proposal' | 'whatsapp' | 'client' | 'archived' | 'restored';
+export type LeadActivityKind = 'note' | 'created' | 'updated' | 'stage' | 'proposal' | 'whatsapp' | 'email' | 'client' | 'archived' | 'restored';
 export type AcceptedAs = 'bot' | 'client';
 
 export const leads = pgTable('leads', {
