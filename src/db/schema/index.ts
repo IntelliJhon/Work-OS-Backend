@@ -36,3 +36,4 @@ export * from './chat_groups';
 export * from './workspace_clients';
 export * from './time_logs';
 export * from './mcp_keys';
+export * from './leads';

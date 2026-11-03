@@ -11,10 +11,17 @@ import { startLeaveEscalation } from './modules/leave/leave.service';
 import { startDueReminders } from './modules/due-reminders/due-reminders.service';
 import { startTimeLogReminders } from './modules/time-logs/time-logs.service';
 import { startLocationNames } from './modules/attendance/location-names';
+import { startLeadFollowUps } from './modules/leads/leads.service';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
   
+  // A server on someone's laptop that shares the live database leaves reminders and escalations to the live server
+  if (env.BACKGROUND_JOBS_ENABLED === 'false') {
+    logger.info('[Background] Background jobs are off (BACKGROUND_JOBS_ENABLED=false)');
+    return;
+  }
+
   // Start background jobs & Google Sheet complaint polling
   startWorkers();
   await initializeSchedulers();
@@ -24,6 +31,7 @@ const server = app.listen(env.PORT, async () => {
   startDueReminders();
   startTimeLogReminders();
   startLocationNames();
+  startLeadFollowUps();
 });
 
 // Initialize Socket.IO with the HTTP server

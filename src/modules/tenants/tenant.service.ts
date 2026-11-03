@@ -59,6 +59,8 @@ export class TenantService {
             "groups.create": true,
             "client.read": true,
             "client.manage": true,
+            "lead.read": true,
+            "lead.manage": true,
             "attendance.use": true,
             "leave.use": true
           }

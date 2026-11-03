@@ -53,6 +53,11 @@ const envSchema = z.object({
   WHATSAPP_DUE_REMINDER_TEMPLATE: z.string().optional().default('work_os_due_reminder'),
   // To whoever assigned a task when it is done: {{1}} first name, {{2}} work id, {{3}} work, {{4}} done by
   WHATSAPP_WORK_DONE_TEMPLATE: z.string().optional().default('work_os_work_done'),
+  // To a lead when it moves to Proposal sent: document header (the proposal PDF); {{1}} name, {{2}} what they are
+  // interested in; the company name is the template's footer
+  WHATSAPP_LEAD_PROPOSAL_TEMPLATE: z.string().optional().default('lead_proposal_sent'),
+  // To a lead's owner when its follow-up is due or overdue: {{1}} first name, {{2}} lead, {{3}} company / interest, {{4}} when
+  WHATSAPP_LEAD_FOLLOW_UP_TEMPLATE: z.string().optional().default('work_os_lead_follow_up'),
   // AI summaries of group chats (Google Gemini); without a key the Summary button says it is not set up
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional().default('gemini-2.5-flash'),
@@ -65,6 +70,8 @@ const envSchema = z.object({
   DAILY_LOGOUT_TIME: z.string().optional().default('00:00'),
   // 'false' stops this process from sending work reminders (e.g. a local server on the production database)
   TASK_REMINDERS_ENABLED: z.string().optional().default('true'),
+  // 'false' starts no background jobs at all (reminders, escalations, polling): a local server on the live database
+  BACKGROUND_JOBS_ENABLED: z.string().optional().default('true'),
   // 'true' polls the complaints Google Sheet every minute for WhatsApp alerts (off: clients phone in directly)
   COMPLAINTS_SHEET_POLLING: z.string().optional().default('false'),
   // Background checks run together every N minutes, and not at night (local hours FROM–UNTIL), so the

@@ -26,6 +26,17 @@ const flattenParam = (value: unknown) =>
 export class WhatsAppService {
   private static readonly REQUEST_TIMEOUT_MS = 10_000;
 
+  /**
+   * Whether WhatsApp took the message. A backup endpoint must also return the message id: with an expired access
+   * key it answers 200 without sending anything (Nov 2026), which hid that nothing was going out.
+   */
+  private static accepted(res: Response, data: any, mainEndpoint: boolean) {
+    if (!res.ok) return false;
+    const id = data?.messages?.[0]?.id ?? data?.message_id ?? data?.data?.messages?.[0]?.id;
+    if (!id && !mainEndpoint) logger.warn({ status: res.status, body: JSON.stringify(data).slice(0, 300) }, '[WhatsAppService] Backup endpoint answered without a message id; treating it as not sent');
+    return mainEndpoint || !!id;
+  }
+
   private static getApiConfig(sender?: WhatsAppSender) {
     const crmApiUrl = (process.env.CRM_API_URL || env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '');
     const apiVersion = process.env.CRM_API_VERSION || 'v19.0';
@@ -123,7 +134,7 @@ export class WhatsAppService {
           });
 
           const data = await res.json();
-          if (res.ok) {
+          if (WhatsAppService.accepted(res, data, apiUrl === targetUrls[0])) {
             logger.info(`[WhatsAppService] Successfully sent "complaint" template alert for #${complaint.ticketId} to ${cleanRecipient} via ${apiUrl}`);
             recipientSent = true;
             break; // Stop trying fallback endpoints for this recipient
@@ -220,7 +231,7 @@ export class WhatsAppService {
         });
 
         const data = await res.json();
-        if (res.ok) {
+        if (WhatsAppService.accepted(res, data, apiUrl === targetUrls[0])) {
           logger.info(`[WhatsAppService] Successfully sent WhatsApp expiry summary text to ${cleanRecipient} via ${apiUrl}`);
           return { success: true, apiResponse: data };
         } else {
@@ -249,7 +260,7 @@ export class WhatsAppService {
         });
 
         const data = await res.json();
-        if (res.ok) {
+        if (WhatsAppService.accepted(res, data, apiUrl === targetUrls[0])) {
           logger.info(`[WhatsAppService] Successfully sent fallback template expiry summary to ${cleanRecipient} via ${apiUrl}`);
           return { success: true, apiResponse: data };
         } else {
@@ -330,7 +341,7 @@ export class WhatsAppService {
         });
 
         const data = await res.json();
-        if (res.ok) {
+        if (WhatsAppService.accepted(res, data, apiUrl === targetUrls[0])) {
           logger.info(`[WhatsAppService] Successfully sent 1-day expiry template alert to ${cleanRecipient} via ${apiUrl}`);
           return { success: true, apiResponse: data };
         } else {
@@ -405,6 +416,23 @@ export class WhatsAppService {
   }
 
   /**
+   * A template with a document header (e.g. a proposal PDF, fetched by WhatsApp from documentUrl) and body variables
+   */
+  static async sendDocumentTemplate(
+    recipientPhone: string,
+    templateName: string,
+    languageCode: string,
+    document: { url: string; filename: string },
+    bodyParams: string[],
+    sender?: WhatsAppSender,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.sendTemplateMessage(recipientPhone, templateName, languageCode, [
+      { type: 'header', parameters: [{ type: 'document', document: { link: document.url, filename: document.filename.slice(0, 240) } }] },
+      { type: 'body', parameters: bodyParams.map((value) => ({ type: 'text', text: flattenParam(value) })) },
+    ], sender);
+  }
+
+  /**
    * Free-form text message. Meta only delivers these inside the 24-hour window after the recipient
    * last messaged the business (e.g. a reply to someone who just sent the bot a voice note).
    */
@@ -456,7 +484,7 @@ export class WhatsAppService {
         });
         const data: any = await res.json().catch(() => ({}));
         const ms = Date.now() - started;
-        if (res.ok) {
+        if (WhatsAppService.accepted(res, data, apiUrl === targetUrls[0])) {
           logger.info({ message: label, to: to.slice(-4), from: phoneNumberId, url: apiUrl, ms }, '[WhatsAppService] Message sent');
           return { success: true };
         }

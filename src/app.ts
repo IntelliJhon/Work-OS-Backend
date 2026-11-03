@@ -42,6 +42,7 @@ import { dueRemindersRouter } from './modules/due-reminders/due-reminders.routes
 import { groupsRouter } from './modules/groups/groups.routes';
 import { workspaceClientsRouter } from './modules/workspace-clients/workspace-clients.routes';
 import { timeLogsRouter } from './modules/time-logs/time-logs.routes';
+import { leadsRouter } from './modules/leads/leads.routes';
 import { mcpRouter } from './modules/mcp/mcp-server';
 import { mcpKeysRouter } from './modules/mcp/mcp-keys.routes';
 import { platformWorkspacesRouter, workspaceRouter } from './modules/sections/sections.routes';
@@ -119,6 +120,7 @@ app.use('/api/reminders', requireSection('reminders') as any, dueRemindersRouter
 app.use('/api/groups', requireSection('groups') as any, groupsRouter);
 app.use('/api/workspace-clients', requireSection('clients') as any, workspaceClientsRouter);
 app.use('/api/time-logs', requireSection('tasks') as any, timeLogsRouter);
+app.use('/api/leads', requireSection('leads') as any, leadsRouter);
 app.use('/api/mcp-keys', mcpKeysRouter);
 // The MCP server for AI tools (n8n, Claude, ChatGPT): read-only, one workspace per key
 app.use('/mcp', mcpRouter);
