@@ -58,9 +58,9 @@ const envSchema = z.object({
   WHATSAPP_LEAD_PROPOSAL_TEMPLATE: z.string().optional().default('lead_proposal_sent'),
   // To a lead's owner when its follow-up is due or overdue: {{1}} first name, {{2}} lead, {{3}} company / interest, {{4}} when
   WHATSAPP_LEAD_FOLLOW_UP_TEMPLATE: z.string().optional().default('work_os_lead_follow_up'),
-  // AI summaries of group chats (Google Gemini); without a key the Summary button says it is not set up
-  GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().optional().default('gemini-2.5-flash'),
+  // Claude API key for the AI features (group chat summaries, WhatsApp "Work OS AI" answers); without it they are off
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_MODEL: z.string().optional().default('claude-opus-5-5'),
   // A request the manager hasn't decided after this many hours goes to the Admins
   LEAVE_ESCALATION_HOURS: z.coerce.number().min(1).max(720).optional().default(12),
   // Reminder for work from a voice note that has a due time (minutes before; 0 = none)

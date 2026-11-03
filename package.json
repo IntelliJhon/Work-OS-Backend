@@ -17,6 +17,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
     "@bull-board/api": "^7.1.5",
     "@bull-board/express": "^7.1.5",
     "@modelcontextprotocol/sdk": "^1.32.1",

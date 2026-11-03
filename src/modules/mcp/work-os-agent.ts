@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
+import type Anthropic from '@anthropic-ai/sdk';
 import { db } from '../../db';
 import { tenants } from '../../db/schema/tenants';
-import { env } from '../../config/env';
+import { claude, claudeAvailable, claudeDefaults, replyText } from '../../lib/claude';
 import { logger } from '../../config/logger';
 import { SectionsService } from '../sections/sections.service';
 import { TOOLS } from './mcp-server';
@@ -10,7 +11,7 @@ import { McpInputError, today } from './mcp-data';
 import type { McpContext, McpSection } from './mcp-keys.service';
 
 /**
- * Answers a WhatsApp question with Work OS data: Gemini with the same read-only tools as the MCP server, locked to
+ * Answers a WhatsApp question with Work OS data: Claude with the same read-only tools as the MCP server, locked to
  * the sender's own workspace (from their registered number). Group chats are left out: they are private talk.
  */
 
@@ -19,31 +20,28 @@ const MAX_ANSWER = 1500;
 const BOT_SECTIONS: McpSection[] = ['tasks', 'projects', 'attendance', 'leave', 'hours', 'clients', 'reminders'];
 const NEEDS: Record<string, string> = { tasks: 'tasks', projects: 'projects', attendance: 'attendance', leave: 'leave', hours: 'tasks', clients: 'clients', reminders: 'reminders' };
 
-/** Tool parameters as JSON Schema for Gemini */
-function parametersFor(shape: Record<string, z.ZodTypeAny>) {
+/** Tool parameters as JSON Schema for Claude */
+function parametersFor(shape: Record<string, z.ZodTypeAny>): Anthropic.Beta.BetaTool.InputSchema {
   const schema = z.toJSONSchema(z.object(shape)) as Record<string, any>;
   delete schema.$schema;
-  delete schema.additionalProperties;
-  return schema;
+  return schema as Anthropic.Beta.BetaTool.InputSchema;
 }
 
 /** The model call; replaceable in tests */
 export const agentModel = {
-  async generate(body: unknown): Promise<any> {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY ?? '' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(40_000),
-    });
-    const data: any = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(`Gemini answered ${res.status}: ${data?.error?.message ?? 'no details'}`);
-    return data;
+  async create(params: { system: string; messages: Anthropic.Beta.BetaMessageParam[]; tools: Anthropic.Beta.BetaTool[] }) {
+    // A WhatsApp chat answer: low effort keeps it quick
+    return claude().beta.messages.create({
+      ...claudeDefaults(),
+      max_tokens: 8000,
+      output_config: { effort: 'low' },
+      ...params,
+    }, { timeout: 40_000 });
   },
 };
 
 export const WorkOsAgent = {
-  available: () => !!env.GEMINI_API_KEY,
+  available: claudeAvailable,
 
   /** A short WhatsApp answer, or null when the AI could not answer (the caller falls back to the fixed replies) */
   async answer(tenantId: string, question: string, askedBy?: string | null): Promise<string | null> {
@@ -61,41 +59,39 @@ export const WorkOsAgent = {
       'Reply in the language of the question (Malayalam, English or a mix as they wrote). Keep it short: plain text, no markdown tables,',
       'at most about 12 lines; lists as "• " lines; work items as their W-number. Dates like "17 Oct". Hours like "2h 30m".',
     ].join(' ');
-    const contents: any[] = [{ role: 'user', parts: [{ text: question }] }];
-    const declarations = tools.map(([name, t]) => ({ name, description: t.description, parametersJsonSchema: parametersFor(t.input) }));
+    const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: question }];
+    const toolDefs: Anthropic.Beta.BetaTool[] = tools.map(([name, t]) => ({ name, description: t.description, input_schema: parametersFor(t.input) }));
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      const data = await agentModel.generate({
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        tools: [{ functionDeclarations: declarations }],
-        generationConfig: { temperature: 0.1 },
-      });
-      const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-      const calls = parts.filter((p) => p.functionCall);
-      if (!calls.length) {
-        const text = parts.map((p) => p.text ?? '').join('').trim();
+      const reply = await agentModel.create({ system, messages, tools: toolDefs });
+      // Declined even after the fallback: the caller sends the fixed replies
+      if (reply.stop_reason === 'refusal') return null;
+      const uses = reply.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
+      if (!uses.length || reply.stop_reason !== 'tool_use') {
+        const text = replyText(reply);
         return text ? text.slice(0, MAX_ANSWER) : null;
       }
-      contents.push({ role: 'model', parts });
-      const responses = [];
-      for (const { functionCall } of calls) {
-        const def = TOOLS[functionCall.name];
-        let response: unknown;
+      messages.push({ role: 'assistant', content: reply.content });
+      const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+      for (const use of uses) {
+        const def = TOOLS[use.name];
+        let result: unknown;
+        let failed = false;
         if (!def || (def.section && !sections.has(def.section))) {
-          response = { error: 'That information is not available here.' };
+          result = 'That information is not available here.';
+          failed = true;
         } else {
           try {
-            const args = z.object(def.input).parse(functionCall.args ?? {});
-            response = { result: await def.run(ctx, args) };
+            result = await def.run(ctx, z.object(def.input).parse(use.input ?? {}));
           } catch (err) {
-            response = { error: err instanceof McpInputError ? err.message : err instanceof z.ZodError ? `Bad arguments: ${err.issues[0]?.message}` : 'Could not read this right now.' };
-            if (!(err instanceof McpInputError) && !(err instanceof z.ZodError)) logger.warn({ err, tool: functionCall.name }, '[WorkOsAgent] Tool failed');
+            failed = true;
+            result = err instanceof McpInputError ? err.message : err instanceof z.ZodError ? `Bad arguments: ${err.issues[0]?.message}` : 'Could not read this right now.';
+            if (!(err instanceof McpInputError) && !(err instanceof z.ZodError)) logger.warn({ err, tool: use.name }, '[WorkOsAgent] Tool failed');
           }
         }
-        responses.push({ functionResponse: { name: functionCall.name, response } });
+        results.push({ type: 'tool_result', tool_use_id: use.id, content: typeof result === 'string' ? result : JSON.stringify(result), ...(failed ? { is_error: true } : {}) });
       }
-      contents.push({ role: 'user', parts: responses });
+      messages.push({ role: 'user', content: results });
     }
     logger.warn({ tenantId }, '[WorkOsAgent] No answer after the maximum number of lookups');
     return null;

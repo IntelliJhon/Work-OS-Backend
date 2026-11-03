@@ -4,11 +4,11 @@ import { chatMessages, chatSummaries, type SummaryContent } from '../../db/schem
 import { isRealDay, localParts } from '../attendance/attendance.service';
 import { atLocal } from '../due-reminders/due-reminders.service';
 import { GroupError, GroupsService } from './groups.service';
-import { env } from '../../config/env';
+import { claude, claudeAvailable, claudeDefaults, replyText } from '../../lib/claude';
 import { logger } from '../../config/logger';
 
 /**
- * One-click AI summary of a group's messages for a range of local days (Gemini). Members only. A summary is
+ * One-click AI summary of a group's messages for a range of local days (Claude). Members only. A summary is
  * saved per group and range; it is reused until a newer message arrives in that range (or someone asks again).
  * Action items are linked to group members by name so the app can turn them into tasks.
  */
@@ -24,46 +24,49 @@ const addDays = (day: string, n: number) => {
 const clock = (at: Date) => localParts(at).hhmm;
 
 const SCHEMA = {
-  type: 'OBJECT',
+  type: 'object',
   properties: {
-    keyPoints: { type: 'ARRAY', items: { type: 'STRING' } },
-    decisions: { type: 'ARRAY', items: { type: 'STRING' } },
+    keyPoints: { type: 'array', items: { type: 'string' } },
+    decisions: { type: 'array', items: { type: 'string' } },
     actionItems: {
-      type: 'ARRAY',
+      type: 'array',
       items: {
-        type: 'OBJECT',
-        properties: { text: { type: 'STRING' }, person: { type: 'STRING', nullable: true }, due: { type: 'STRING', nullable: true } },
-        required: ['text'],
+        type: 'object',
+        properties: { text: { type: 'string' }, person: { type: ['string', 'null'] }, due: { type: ['string', 'null'] } },
+        required: ['text', 'person', 'due'],
+        additionalProperties: false,
       },
     },
-    openQuestions: { type: 'ARRAY', items: { type: 'STRING' } },
+    openQuestions: { type: 'array', items: { type: 'string' } },
   },
   required: ['keyPoints', 'decisions', 'actionItems', 'openQuestions'],
+  additionalProperties: false,
 };
+
+const FAILED = 'The AI could not write the summary right now. Please try again.';
 
 /** The model call; replaceable in tests */
 export const summaryModel = {
   async generate(prompt: string): Promise<unknown> {
-    if (!env.GEMINI_API_KEY) throw new GroupError(503, 'ai_not_configured', 'AI summaries are not set up yet (GEMINI_API_KEY is missing on the server)');
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA },
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    const data: any = await res.json().catch(() => null);
-    if (!res.ok) {
-      logger.warn({ status: res.status, error: data?.error?.message }, '[GroupSummary] Gemini refused the request');
-      throw new GroupError(502, 'ai_failed', 'The AI could not write the summary right now. Please try again.');
+    if (!claudeAvailable()) throw new GroupError(503, 'ai_not_configured', 'AI summaries are not set up yet (ANTHROPIC_API_KEY is missing on the server)');
+    let text: string;
+    try {
+      const reply = await claude().beta.messages.create({
+        ...claudeDefaults(),
+        max_tokens: 16000,
+        output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
+        messages: [{ role: 'user', content: prompt }],
+      }, { timeout: 90_000 });
+      if (reply.stop_reason === 'refusal') logger.warn({ category: reply.stop_details?.category }, '[GroupSummary] Claude declined the request');
+      text = replyText(reply);
+    } catch (err) {
+      logger.warn({ err }, '[GroupSummary] Claude request failed');
+      throw new GroupError(502, 'ai_failed', FAILED);
     }
-    const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? '';
     try {
       return JSON.parse(text);
     } catch {
-      throw new GroupError(502, 'ai_failed', 'The AI could not write the summary right now. Please try again.');
+      throw new GroupError(502, 'ai_failed', FAILED);
     }
   },
 };
