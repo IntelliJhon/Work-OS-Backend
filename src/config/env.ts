@@ -61,6 +61,11 @@ const envSchema = z.object({
   // Client conversation wallet below LOW_BALANCE_LIMIT: {{1}} client / channel name, {{2}} WhatsApp number, {{3}} balance
   WHATSAPP_LOW_BALANCE_TEMPLATE: z.string().optional().default('low_balance_alert'),
   LOW_BALANCE_LIMIT: z.coerce.number().min(0).optional().default(100),
+  // The agency's own Partner Panel wallets: alert below these (main in rupees, conversation in coins); {{1}} which wallet,
+  // {{2}} its balance
+  WHATSAPP_AGENCY_LOW_BALANCE_TEMPLATE: z.string().optional().default('agency_low_balance'),
+  AGENCY_LOW_MAIN_LIMIT: z.coerce.number().min(0).optional().default(100),
+  AGENCY_LOW_COIN_LIMIT: z.coerce.number().min(0).optional().default(100),
   // Who gets the low-balance alerts (comma separated, with country code)
   LOW_BALANCE_ALERT_NUMBERS: z.string().optional().default('917736956474,917034887149'),
   // Claude API key for the AI features (group chat summaries, WhatsApp "Work OS AI" answers); without it they are off

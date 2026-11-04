@@ -66,3 +66,26 @@ export async function activeChannelsByUser(): Promise<Map<string, PartnerChannel
   }
   return byUser;
 }
+
+export interface AgencyWallets {
+  main: { balance: number; currency: string; totalIn: number; totalOut: number } | null;
+  conversation: { balance: number } | null;
+}
+
+/** The agency's own Partner Panel wallets: main (money) and conversation (coins); client top-ups are paid from them */
+export async function fetchAgencyWallets(): Promise<AgencyWallets> {
+  const base = (env.AUTOMATIONS_BUILDER_API_BASE || 'https://partner-api.automationsbuilder.com').replace(/\/$/, '');
+  const get = async (path: string) => {
+    const res = await fetch(`${base}${path}`, {
+      headers: { Authorization: `Bearer ${env.AUTOMATIONS_BUILDER_API_TOKEN ?? ''}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new PartnerApiError(res.status);
+    return ((await res.json()) as any)?.data;
+  };
+  const [main, coins] = await Promise.all([get('/api/v1/wallet'), get('/api/v1/coin/wallet')]);
+  return {
+    main: typeof main?.current === 'number' ? { balance: main.current, currency: main.currency ?? 'INR', totalIn: main.in ?? 0, totalOut: main.out ?? 0 } : null,
+    conversation: typeof coins?.balance === 'number' ? { balance: coins.balance } : null,
+  };
+}

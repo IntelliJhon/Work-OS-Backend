@@ -10,7 +10,7 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { v2 as cloudinary } from 'cloudinary';
 import { uploadStream } from '../uploads/cloudinary';
-import { activeChannelsByUser } from './partner-channels';
+import { activeChannelsByUser, fetchAgencyWallets } from './partner-channels';
 import { lowBalanceWatch } from '../../db/schema/low_balance_alerts';
 import { roleAccess } from '../sections/role-access';
 import { TopUpError, topUpConversationWallet, topUpMainWallet } from './wallet-topups';
@@ -133,10 +133,18 @@ export class ClientsController {
 
       // Adding balance is for Admins only
       const canTopUp = (await roleAccess(tenantId, req.user!.roleId)).admin;
+      // The agency's own wallets (shown on top of the page); the list still loads without them
+      const agencyWallets = await fetchAgencyWallets().catch((err) => {
+        logger.warn({ msg: 'Could not load the agency wallets', error: err?.message });
+        return null;
+      });
 
       return res.json({
         success: true,
         canTopUp,
+        agencyWallets: agencyWallets
+          ? { ...agencyWallets, mainLimit: env.AGENCY_LOW_MAIN_LIMIT, conversationLimit: env.AGENCY_LOW_COIN_LIMIT }
+          : null,
         company: tenant.name,
         slug: tenant.slug,
         isOurCompany: true,
