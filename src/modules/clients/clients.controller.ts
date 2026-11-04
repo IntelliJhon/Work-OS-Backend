@@ -7,6 +7,7 @@ import { clientOnboarding } from '../../db/schema/client_onboarding';
 import { clientDocuments } from '../../db/schema/client_documents';
 import { eq, and, desc, gte, lt, sql } from 'drizzle-orm';
 import { users } from '../../db/schema/users';
+import { withTenant } from '../../middleware/tenant.middleware';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { v2 as cloudinary } from 'cloudinary';
@@ -170,7 +171,8 @@ export class ClientsController {
       // Dates are Indian days
       if (from) conds.push(gte(walletTopups.createdAt, new Date(`${from}T00:00:00+05:30`)));
       if (to) conds.push(lt(walletTopups.createdAt, new Date(new Date(`${to}T00:00:00+05:30`).getTime() + 86_400_000)));
-      const rows = await db
+      // users has row-level security: the join only sees this workspace's people inside withTenant
+      const rows = await withTenant<any[]>(tenantId, (tx) => tx
         .select({
           id: walletTopups.id, createdAt: walletTopups.createdAt, clientId: walletTopups.clientId, clientName: walletTopups.clientName,
           wallet: walletTopups.wallet, channelNumber: walletTopups.channelNumber, amount: walletTopups.amount, note: walletTopups.note,
@@ -181,8 +183,8 @@ export class ClientsController {
         .leftJoin(users, eq(users.id, walletTopups.addedBy))
         .where(and(...conds))
         .orderBy(desc(walletTopups.createdAt))
-        .limit(500);
-      return res.json({ success: true, topups: rows.map((r) => ({ ...r, amount: Number(r.amount) })) });
+        .limit(500));
+      return res.json({ success: true, topups: rows.map((r: any) => ({ ...r, amount: Number(r.amount) })) });
     } catch (err: any) {
       logger.error({ msg: 'ClientsController.getWalletTopups error', error: err.message });
       return res.status(500).json({ error: 'Failed to load the recharge history' });
