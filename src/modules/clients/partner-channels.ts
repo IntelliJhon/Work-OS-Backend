@@ -89,3 +89,31 @@ export async function fetchAgencyWallets(): Promise<AgencyWallets> {
     conversation: typeof coins?.balance === 'number' ? { balance: coins.balance } : null,
   };
 }
+
+export interface PartnerUser { id: string; name: string; email: string; expiry: string | null; balance: number; currency: string }
+
+/** The Partner Panel client accounts (main wallet and subscription expiry) */
+export async function fetchPartnerUsers(): Promise<PartnerUser[]> {
+  const base = (env.AUTOMATIONS_BUILDER_API_BASE || 'https://partner-api.automationsbuilder.com').replace(/\/$/, '');
+  const out: PartnerUser[] = [];
+  for (let page = 1; page <= 25; page++) {
+    const res = await fetch(`${base}/api/v1/users?page=${page}&limit=${PAGE}`, {
+      headers: { Authorization: `Bearer ${env.AUTOMATIONS_BUILDER_API_TOKEN ?? ''}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new PartnerApiError(res.status);
+    const batch: any[] = ((await res.json()) as any)?.data ?? [];
+    for (const u of batch) {
+      out.push({
+        id: String(u.id),
+        name: `${u.profile?.name?.first ?? ''} ${u.profile?.name?.last ?? ''}`.trim() || String(u.email ?? 'Client'),
+        email: String(u.email ?? ''),
+        expiry: u.expiry ?? null,
+        balance: typeof u.balance === 'number' ? u.balance : 0,
+        currency: u.currency ?? 'INR',
+      });
+    }
+    if (batch.length < PAGE) break;
+  }
+  return out;
+}

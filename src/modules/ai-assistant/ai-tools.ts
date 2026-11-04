@@ -6,6 +6,7 @@ import { aiActions, aiFiles } from '../../db/schema/ai_assistant';
 import { LEAD_SOURCES, LEAD_STAGES, REJECT_REASONS } from '../../db/schema/leads';
 import { LeadError, LeadsService, STAGE_LABELS, type Access } from '../leads/leads.service';
 import { formatLeadPhone } from './ai-format';
+import { WALLET_TOOLS } from './ai-wallet-tools';
 
 /**
  * What the assistant can do, as Claude tools. Each runs with the asking person's own lead permissions (lead.read /
@@ -209,6 +210,9 @@ export const AI_TOOLS = {
     },
   }),
 };
+
+// Partner Panel wallets (LeadsNDeals): look-ups and top-up cards
+Object.assign(AI_TOOLS, WALLET_TOOLS);
 
 export type AiToolName = keyof typeof AI_TOOLS;
 

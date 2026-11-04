@@ -14,6 +14,8 @@ import { SectionsService } from '../sections/sections.service';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { AI_TOOLS, toolDefinitions, type AiToolName, type ToolContext } from './ai-tools';
+import { topUpConversationWallet, topUpMainWallet } from '../clients/wallet-topups';
+import { roleAccess as roleOf } from '../sections/role-access';
 
 /**
  * The in-app AI assistant: a chat with Claude per person, with tools for leads and proposals. The history is stored
@@ -177,6 +179,7 @@ export class AiAssistantService {
       'Sending to a client only shows the user a Send / Cancel card. Never say anything was sent unless a "[Work OS]" note in the chat says the user clicked Send and it went out. You cannot send email.',
       'If a tool says the user\'s role cannot do something, explain that plainly.',
       'Each user message starts with "[Now: …]", the date and time it was written (India time); use it for "today", "tomorrow" and follow-up times.',
+      'In the LeadsNDeals workspace you can also look up Partner Panel wallets (clients\' main and conversation wallets, our own balances) and, for Admins, prepare a top-up: an Add / Cancel card; nothing is added until they click Add.',
       'Reply briefly in the user\'s language, as plain chat text (short lines or "• " lists, no tables).',
     ].join('\n');
     const tools = toolDefinitions();
@@ -254,6 +257,7 @@ export class AiAssistantService {
     if (!claimed) throw new AiError(409, 'decided', 'This was already handled');
     // Email cards from when company email was on can no longer be sent
     if (a.kind === 'send_email') throw new AiError(410, 'email_off', 'Sending email from Work OS is turned off');
+    if (a.kind === 'wallet_topup') return this.confirmTopUp(asker, a);
     const p = a.payload as { leadId: string; leadName: string; proposalId: string; version: number; fileName: string };
     let result: string;
     let ok = false;
@@ -276,11 +280,34 @@ export class AiAssistantService {
     return this.view(asker, a.conversationId);
   }
 
+  /** An Admin clicked Add: the balance is added in the Partner Panel (same as the Add balance buttons) */
+  private static async confirmTopUp(asker: Asker, a: typeof aiActions.$inferSelect) {
+    const p = a.payload as { clientId: string; clientName: string; wallet: 'main' | 'conversation'; channelId: string | null; channelNumber: string | null; amount: number; note: string | null; currency: string };
+    const where = p.wallet === 'main' ? 'main wallet' : `conversation wallet (${p.channelNumber})`;
+    const amount = `${p.currency === 'INR' ? '₹' : `${p.currency} `}${p.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    let result: string;
+    let ok = false;
+    try {
+      if (!(await roleOf(asker.tenantId, asker.roleId)).admin) throw new LeadError(403, 'forbidden', 'Only Admins can add balance');
+      const input = { tenantId: asker.tenantId, userId: asker.userId, clientId: p.clientId, clientName: p.clientName, amount: p.amount, note: p.note ?? 'Added from Ask AI' };
+      const r = p.wallet === 'main' ? await topUpMainWallet(input) : await topUpConversationWallet({ ...input, channelId: p.channelId! });
+      ok = true;
+      result = `${amount} was added to ${p.clientName}'s ${where}.${typeof r.balance === 'number' ? ` New balance: ${r.balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}.` : ''}`;
+    } catch (err) {
+      result = `${amount} was not added to ${p.clientName}'s ${where}: ${err instanceof Error ? err.message : 'unknown error'}`;
+    }
+    await db.update(aiActions).set({ status: ok ? 'done' : 'failed', result }).where(eq(aiActions.id, a.id));
+    await this.note(asker, a.conversationId, `The user clicked Add. ${result}`);
+    return this.view(asker, a.conversationId);
+  }
+
   static async cancel(asker: Asker, id: string) {
     const a = await this.action(asker, id);
     const p = a.payload as { leadName?: string; version?: number; subject?: string };
     await db.update(aiActions).set({ status: 'cancelled', result: 'Cancelled', decidedAt: new Date() }).where(and(eq(aiActions.id, a.id), eq(aiActions.status, 'pending')));
-    await this.note(asker, a.conversationId, a.kind === 'send_email'
+    await this.note(asker, a.conversationId, a.kind === 'wallet_topup'
+      ? `The user cancelled the top-up for ${p.leadName}. Nothing was added.`
+      : a.kind === 'send_email'
       ? `The user cancelled the email "${p.subject}". Nothing was sent.`
       : `The user cancelled sending proposal v${p.version} to ${p.leadName}. Nothing was sent.`);
     return this.view(asker, a.conversationId);

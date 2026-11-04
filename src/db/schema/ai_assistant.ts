@@ -49,7 +49,7 @@ export const aiActions = pgTable('ai_actions', {
   tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
   conversationId: uuid('conversation_id').references(() => aiConversations.id, { onDelete: 'cascade' }).notNull(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  kind: varchar('kind', { length: 30 }).$type<'send_proposal' | 'send_email'>().notNull(),
+  kind: varchar('kind', { length: 30 }).$type<'send_proposal' | 'send_email' | 'wallet_topup'>().notNull(),
   payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
   status: varchar('status', { length: 12 }).$type<AiActionStatus>().default('pending').notNull(),
   result: text('result'),

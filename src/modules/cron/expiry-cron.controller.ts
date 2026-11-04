@@ -122,20 +122,25 @@ export class ExpiryCronController {
         if (milestone === '1_DAY_BEFORE') {
           const alertKey = `${client.id}_${milestone}`;
           if (!sentAlertsKeySet.has(alertKey)) {
-            const clientPhone = String(client.phone || client.profile?.phone || client.mobile || targetRecipient).trim();
+            // The client's own number when the Partner Panel has one, and always the team (EXPIRY_ALERT_NUMBERS)
+            const ownPhone = String(client.phone || client.profile?.phone || client.mobile || '').trim();
+            const recipients = [...new Set([ownPhone, ...env.EXPIRY_ALERT_NUMBERS.split(',')].map((n) => n.trim()).filter(Boolean))];
+            const clientPhone = recipients.join(', ');
             const expiryDateFormatted = expiryDate.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
 
-            try {
-              const res1Day = await WhatsAppService.sendIndividual1DayExpiryAlert(fullName, expiryDateFormatted, clientPhone);
-              individualAlertsSent.push({
-                clientId: client.id,
-                clientName: fullName,
-                phone: clientPhone,
-                sent: res1Day.success,
-                error: res1Day.error,
-              });
-            } catch (err1Day: any) {
-              logger.error({ msg: 'Failed sending 1-day individual alert in cron', client: fullName, error: err1Day.message });
+            for (const to of recipients) {
+              try {
+                const res1Day = await WhatsAppService.sendIndividual1DayExpiryAlert(fullName, expiryDateFormatted, to);
+                individualAlertsSent.push({
+                  clientId: client.id,
+                  clientName: fullName,
+                  phone: to,
+                  sent: res1Day.success,
+                  error: res1Day.error,
+                });
+              } catch (err1Day: any) {
+                logger.error({ msg: 'Failed sending 1-day individual alert in cron', client: fullName, to, error: err1Day.message });
+              }
             }
 
             newAlertsToInsert.push({
