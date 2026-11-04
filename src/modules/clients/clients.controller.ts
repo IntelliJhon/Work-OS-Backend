@@ -5,13 +5,14 @@ import { tenants } from '../../db/schema/tenants';
 import { clientNotes } from '../../db/schema/client_notes';
 import { clientOnboarding } from '../../db/schema/client_onboarding';
 import { clientDocuments } from '../../db/schema/client_documents';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, lt, sql } from 'drizzle-orm';
+import { users } from '../../db/schema/users';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { v2 as cloudinary } from 'cloudinary';
 import { uploadStream } from '../uploads/cloudinary';
 import { activeChannelsByUser, fetchAgencyWallets } from './partner-channels';
-import { lowBalanceWatch } from '../../db/schema/low_balance_alerts';
+import { lowBalanceWatch, walletTopups } from '../../db/schema/low_balance_alerts';
 import { roleAccess } from '../sections/role-access';
 import { TopUpError, topUpConversationWallet, topUpMainWallet } from './wallet-topups';
 
@@ -158,6 +159,36 @@ export class ClientsController {
   }
 
   /** Adds balance to a client's main wallet, or to one WhatsApp channel's conversation wallet (Admins only) */
+  /** Recharge history: every top-up made from Work OS (the Add balance buttons and Ask AI), newest first */
+  static async getWalletTopups(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const conds = [eq(walletTopups.tenantId, tenantId)];
+      const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+      const from = day(req.query.from);
+      const to = day(req.query.to);
+      // Dates are Indian days
+      if (from) conds.push(gte(walletTopups.createdAt, new Date(`${from}T00:00:00+05:30`)));
+      if (to) conds.push(lt(walletTopups.createdAt, new Date(new Date(`${to}T00:00:00+05:30`).getTime() + 86_400_000)));
+      const rows = await db
+        .select({
+          id: walletTopups.id, createdAt: walletTopups.createdAt, clientId: walletTopups.clientId, clientName: walletTopups.clientName,
+          wallet: walletTopups.wallet, channelNumber: walletTopups.channelNumber, amount: walletTopups.amount, note: walletTopups.note,
+          status: walletTopups.status, error: walletTopups.error, source: walletTopups.source,
+          addedBy: sql<string | null>`nullif(trim(concat_ws(' ', ${users.firstName}, ${users.lastName})), '')`,
+        })
+        .from(walletTopups)
+        .leftJoin(users, eq(users.id, walletTopups.addedBy))
+        .where(and(...conds))
+        .orderBy(desc(walletTopups.createdAt))
+        .limit(500);
+      return res.json({ success: true, topups: rows.map((r) => ({ ...r, amount: Number(r.amount) })) });
+    } catch (err: any) {
+      logger.error({ msg: 'ClientsController.getWalletTopups error', error: err.message });
+      return res.status(500).json({ error: 'Failed to load the recharge history' });
+    }
+  }
+
   static async topUpWallet(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const tenantId = req.user!.tenantId;

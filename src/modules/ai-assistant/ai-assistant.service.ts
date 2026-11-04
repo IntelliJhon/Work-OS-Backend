@@ -289,7 +289,7 @@ export class AiAssistantService {
     let ok = false;
     try {
       if (!(await roleOf(asker.tenantId, asker.roleId)).admin) throw new LeadError(403, 'forbidden', 'Only Admins can add balance');
-      const input = { tenantId: asker.tenantId, userId: asker.userId, clientId: p.clientId, clientName: p.clientName, amount: p.amount, note: p.note ?? 'Added from Ask AI' };
+      const input = { tenantId: asker.tenantId, userId: asker.userId, clientId: p.clientId, clientName: p.clientName, amount: p.amount, note: p.note, source: 'ai' as const };
       const r = p.wallet === 'main' ? await topUpMainWallet(input) : await topUpConversationWallet({ ...input, channelId: p.channelId! });
       ok = true;
       result = `${amount} was added to ${p.clientName}'s ${where}.${typeof r.balance === 'number' ? ` New balance: ${r.balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}.` : ''}`;

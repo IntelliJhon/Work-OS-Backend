@@ -22,6 +22,9 @@ clientsRouter.use(authenticate as any, requireLeadsndeals as any);
 // GET /api/clients
 clientsRouter.get('/', ClientsController.getClients as any);
 
+// GET /api/clients/wallet-topups - Recharge history (top-ups made from Work OS)
+clientsRouter.get('/wallet-topups', ClientsController.getWalletTopups as any);
+
 // POST /api/clients/:id/wallet-topup - Add balance to the main or a conversation wallet (Admins only)
 clientsRouter.post('/:id/wallet-topup', ClientsController.topUpWallet as any);
 

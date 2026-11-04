@@ -32,13 +32,15 @@ interface TopUpInput {
   clientName: string | null;
   amount: number;
   note: string | null;
+  /** Where it was made from (default: the Add balance buttons) */
+  source?: 'button' | 'ai';
 }
 
 async function log(input: TopUpInput, extra: { wallet: 'main' | 'conversation'; channelId?: string; channelNumber?: string; status: 'done' | 'failed'; error?: string | null }) {
   await db.insert(walletTopups).values({
     tenantId: input.tenantId, clientId: input.clientId, clientName: input.clientName, channelId: extra.channelId ?? null,
     channelNumber: extra.channelNumber ?? null, wallet: extra.wallet, amount: input.amount.toFixed(2), note: input.note,
-    status: extra.status, error: extra.error ?? null, addedBy: input.userId,
+    status: extra.status, error: extra.error ?? null, addedBy: input.userId, source: input.source ?? 'button',
   });
 }
 

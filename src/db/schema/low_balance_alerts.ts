@@ -35,6 +35,7 @@ export const walletTopups = pgTable('wallet_topups', {
   note: text('note'),
   status: varchar('status', { length: 10 }).$type<'done' | 'failed'>().notNull(),
   error: text('error'),
+  source: varchar('source', { length: 10 }).$type<'button' | 'ai'>().default('button').notNull(),
   addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
