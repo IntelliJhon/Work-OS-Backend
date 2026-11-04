@@ -10,13 +10,18 @@ import { fetchPartnerChannels } from './partner-channels';
 /**
  * WhatsApp to the team (LOW_BALANCE_ALERT_NUMBERS) when an active channel of a watched client (switched on on the
  * Onboarded Clients page) has less than LOW_BALANCE_LIMIT in its conversation wallet. Clients whose panel
- * subscription has expired are skipped. A low channel gets one alert, one reminder the next day, then no more until
- * it is topped up again (then the next drop alerts at once).
+ * subscription has expired are skipped. A low channel gets one alert straight away, one reminder at REMINDER_HOUR on
+ * a later day, then no more until it is topped up again (then the next drop alerts at once).
  */
 
-const DAY_MS = 86_400_000;
-// The first alert and one reminder the next day
+// The first alert and one reminder
 const MAX_ALERTS = 2;
+// The reminder goes out from this local hour (WORK_TIMEZONE) on a day after the first alert
+const REMINDER_HOUR = 10;
+
+const localDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: env.WORK_TIMEZONE });
+const localHour = (d: Date) => Number(d.toLocaleString('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: env.WORK_TIMEZONE }));
+const reminderDue = (firstAlert: Date, now = new Date()) => localDay(now) > localDay(firstAlert) && localHour(now) >= REMINDER_HOUR;
 
 async function liveClientIds(): Promise<Set<string>> {
   const base = (env.AUTOMATIONS_BUILDER_API_BASE || 'https://partner-api.automationsbuilder.com').replace(/\/$/, '');
@@ -61,7 +66,7 @@ export async function checkLowBalances() {
   let sent = 0;
   for (const c of low) {
     const before = sentBefore.get(c.id);
-    if (before && (before.alertCount >= MAX_ALERTS || Date.now() - before.alertedAt.getTime() < DAY_MS)) continue;
+    if (before && (before.alertCount >= MAX_ALERTS || !reminderDue(before.alertedAt))) continue;
     const amount = `${c.currency === 'INR' ? '₹' : `${c.currency} `}${c.balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
     let ok = false;
     for (const to of numbers) {
