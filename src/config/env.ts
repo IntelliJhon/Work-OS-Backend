@@ -58,6 +58,11 @@ const envSchema = z.object({
   WHATSAPP_LEAD_PROPOSAL_TEMPLATE: z.string().optional().default('lead_proposal_sent'),
   // To a lead's owner when its follow-up is due or overdue: {{1}} first name, {{2}} lead, {{3}} company / interest, {{4}} when
   WHATSAPP_LEAD_FOLLOW_UP_TEMPLATE: z.string().optional().default('work_os_lead_follow_up'),
+  // Client conversation wallet below LOW_BALANCE_LIMIT: {{1}} client / channel name, {{2}} WhatsApp number, {{3}} balance
+  WHATSAPP_LOW_BALANCE_TEMPLATE: z.string().optional().default('low_balance_alert'),
+  LOW_BALANCE_LIMIT: z.coerce.number().min(0).optional().default(100),
+  // Who gets the low-balance alerts (comma separated, with country code)
+  LOW_BALANCE_ALERT_NUMBERS: z.string().optional().default('917736956474,917034887149'),
   // Claude API key for the AI features (group chat summaries, WhatsApp "Work OS AI" answers); without it they are off
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().optional().default('claude-opus-5-5'),

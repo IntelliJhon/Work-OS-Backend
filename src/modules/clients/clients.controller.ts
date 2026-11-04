@@ -10,6 +10,10 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { v2 as cloudinary } from 'cloudinary';
 import { uploadStream } from '../uploads/cloudinary';
+import { activeChannelsByUser } from './partner-channels';
+import { lowBalanceWatch } from '../../db/schema/low_balance_alerts';
+import { roleAccess } from '../sections/role-access';
+import { TopUpError, topUpConversationWallet, topUpMainWallet } from './wallet-topups';
 
 /**
  * Where a stored document lives. The app asks with ?as=link and opens the URL itself: it sends the
@@ -103,12 +107,20 @@ export class ClientsController {
         docsMap.set(d.clientId, arr);
       });
 
-      // Enrich users with comments & documents
+      // Each client's active WhatsApp channels and their conversation wallets, and who gets low-balance alerts
+      const channelsByUser = await activeChannelsByUser();
+      const watched = new Set((await db.select({ userId: lowBalanceWatch.userId }).from(lowBalanceWatch)).map(w => w.userId));
+
+      // Enrich users with comments, documents and conversation wallets
       const enrichedUsers = allUsers.map(u => {
         const note = notesMap.get(u.id);
         const docs = docsMap.get(u.id) || [];
+        const channels = channelsByUser.get(u.id) || [];
         return {
           ...u,
+          conversationChannels: channels.map(c => ({ id: c.id, name: c.name, number: c.number, balance: c.balance, currency: c.currency })),
+          conversationBalance: channels.length ? channels.reduce((sum, c) => sum + c.balance, 0) : null,
+          lowBalanceAlert: watched.has(u.id),
           comment: note?.comment || '',
           commentAuthor: note?.authorName || null,
           commentUpdatedAt: note?.updatedAt ? note.updatedAt.toISOString() : null,
@@ -119,8 +131,12 @@ export class ClientsController {
 
       logger.info({ msg: 'Successfully fetched all external clients and attached comments and documents', totalFetched: enrichedUsers.length });
 
+      // Adding balance is for Admins only
+      const canTopUp = (await roleAccess(tenantId, req.user!.roleId)).admin;
+
       return res.json({
         success: true,
+        canTopUp,
         company: tenant.name,
         slug: tenant.slug,
         isOurCompany: true,
@@ -130,6 +146,52 @@ export class ClientsController {
     } catch (err: any) {
       logger.error({ msg: 'ClientsController.getClients error', error: err.message });
       return res.status(500).json({ error: 'Failed to retrieve clients list' });
+    }
+  }
+
+  /** Adds balance to a client's main wallet, or to one WhatsApp channel's conversation wallet (Admins only) */
+  static async topUpWallet(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      if (!(await roleAccess(tenantId, req.user!.roleId)).admin) return res.status(403).json({ error: 'Only Admins can add balance' });
+      const clientId = String(req.params.id);
+      if (!/^[a-f0-9]{24}$/i.test(clientId)) return res.status(400).json({ error: 'Invalid client id' });
+      const wallet = req.body?.wallet;
+      const channelId = typeof req.body?.channelId === 'string' ? req.body.channelId : '';
+      const input = {
+        tenantId, userId: req.user!.id, clientId,
+        clientName: typeof req.body?.clientName === 'string' ? req.body.clientName.slice(0, 255) : null,
+        amount: Number(req.body?.amount),
+        note: typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim().slice(0, 500) : null,
+      };
+      let result;
+      if (wallet === 'main') result = await topUpMainWallet(input);
+      else if (wallet === 'conversation' && /^[a-f0-9]{24}$/i.test(channelId)) result = await topUpConversationWallet({ ...input, channelId });
+      else return res.status(400).json({ error: 'Choose the wallet to add balance to' });
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      if (err instanceof TopUpError) return res.status(err.status).json({ error: err.message });
+      logger.error({ msg: 'ClientsController.topUpWallet error', error: err.message });
+      return res.status(500).json({ error: 'Failed to add the balance' });
+    }
+  }
+
+  /** Switches the low conversation-balance WhatsApp alert on or off for one client */
+  static async setLowBalanceAlert(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const clientId = String(req.params.id);
+      const on = req.body?.on === true;
+      const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 255) : clientId;
+      if (!/^[a-f0-9]{24}$/i.test(clientId)) return res.status(400).json({ error: 'Invalid client id' });
+      if (on) {
+        await db.insert(lowBalanceWatch).values({ userId: clientId, name, addedBy: req.user?.id ?? null }).onConflictDoNothing();
+      } else {
+        await db.delete(lowBalanceWatch).where(eq(lowBalanceWatch.userId, clientId));
+      }
+      return res.json({ success: true, on });
+    } catch (err: any) {
+      logger.error({ msg: 'ClientsController.setLowBalanceAlert error', error: err.message });
+      return res.status(500).json({ error: 'Failed to change the alert' });
     }
   }
 

@@ -22,6 +22,12 @@ clientsRouter.use(authenticate as any, requireLeadsndeals as any);
 // GET /api/clients
 clientsRouter.get('/', ClientsController.getClients as any);
 
+// POST /api/clients/:id/wallet-topup - Add balance to the main or a conversation wallet (Admins only)
+clientsRouter.post('/:id/wallet-topup', ClientsController.topUpWallet as any);
+
+// PUT /api/clients/:id/low-balance-alert - Low conversation-balance WhatsApp alert on/off for a client
+clientsRouter.put('/:id/low-balance-alert', ClientsController.setLowBalanceAlert as any);
+
 // POST /api/clients/:id/comments - Add or update comment on an onboarded client
 clientsRouter.post('/:id/comments', ClientsController.saveClientComment as any);
 

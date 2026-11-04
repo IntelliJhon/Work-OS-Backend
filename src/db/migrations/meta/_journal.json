@@ -358,6 +358,13 @@
       "when": 1792400000000,
       "tag": "0050_company_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0051_low_balance_alerts",
+      "breakpoints": true
     }
   ]
 }
