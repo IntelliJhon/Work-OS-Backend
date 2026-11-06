@@ -18,6 +18,7 @@ import { WhatsAppService } from '../../services/whatsapp.service';
 import { everyRound } from '../../jobs/background-clock';
 import { CLIENT_FOLLOW_UPS } from './follow-up-templates';
 import { env } from '../../config/env';
+import { aiFiles } from '../../db/schema/ai_assistant';
 import { logger } from '../../config/logger';
 
 /**
@@ -265,7 +266,7 @@ export class LeadsService {
         ilike(leads.service, like),
         digits.length >= 4 ? ilike(leads.phone, `%${digits}%`) : undefined,
       ) : undefined,
-    )).orderBy(desc(leads.stageChangedAt)).limit(2000);
+    )).orderBy(filter.archived ? desc(leads.archivedAt) : desc(leads.stageChangedAt)).limit(2000);
 
     // Latest proposal per lead (version and amount), for the cards
     const ids = rows.map((r) => r.id);
@@ -277,7 +278,8 @@ export class LeadsService {
         .orderBy(leadProposals.leadId, desc(leadProposals.version));
       props.forEach((p) => latest.set(p.leadId, { version: p.version, amount: p.amount, uploadId: p.uploadId }));
     }
-    const people = await names(tenantId, rows.map((r) => r.ownerId));
+    // An archived lead can't be edited, so its last editor is the person who archived it
+    const people = await names(tenantId, [...rows.map((r) => r.ownerId), ...(filter.archived ? rows.map((r) => r.updatedBy) : [])]);
     return rows.map((l) => ({
       id: l.id,
       name: l.name,
@@ -301,6 +303,7 @@ export class LeadsService {
       proposalHasFile: !!latest.get(l.id)?.uploadId,
       clientId: l.clientId,
       archivedAt: l.archivedAt,
+      archivedByName: l.archivedAt && l.updatedBy ? people.get(l.updatedBy) ?? null : null,
       createdAt: l.createdAt,
     }));
   }
@@ -580,6 +583,30 @@ export class LeadsService {
     const [restored] = await db.update(leads).set({ archivedAt: null, updatedBy: access.userId, updatedAt: new Date() }).where(eq(leads.id, l.id)).returning();
     await this.log(tenantId, l.id, access.userId, 'restored', `Restored ${l.name}`);
     return this.view(tenantId, restored);
+  }
+
+  /**
+   * Permanently deletes an archived lead (Admins only): its notes, history and proposals go with it (database cascade),
+   * and the proposal files are removed from storage unless an Ask AI chat still uses the same file.
+   */
+  static async remove(tenantId: string, access: Access, leadId: string) {
+    if (!access.admin) throw new LeadError(403, 'forbidden', 'Only Admins can delete leads');
+    const l = await this.lead(tenantId, leadId, { archived: true });
+    if (!l.archivedAt) throw new LeadError(409, 'not_archived', 'Archive the lead before deleting it');
+    const files = (await db.select({ uploadId: leadProposals.uploadId }).from(leadProposals)
+      .where(and(eq(leadProposals.tenantId, tenantId), eq(leadProposals.leadId, l.id), isNotNull(leadProposals.uploadId))))
+      .map((f) => f.uploadId!);
+    await db.delete(leads).where(and(eq(leads.id, l.id), eq(leads.tenantId, tenantId)));
+    if (files.length) {
+      const inChats = new Set((await db.select({ uploadId: aiFiles.uploadId }).from(aiFiles)
+        .where(and(eq(aiFiles.tenantId, tenantId), inArray(aiFiles.uploadId, files)))).map((f) => f.uploadId));
+      for (const uploadId of new Set(files)) {
+        if (inChats.has(uploadId)) continue;
+        await UploadService.deleteUpload(tenantId, uploadId).catch((err) => logger.warn({ leadId: l.id, uploadId, err: err?.message }, '[Leads] Proposal file not removed'));
+      }
+    }
+    logger.info({ tenantId, leadId: l.id, by: access.userId, proposals: files.length }, '[Leads] Deleted archived lead');
+    return { deleted: true };
   }
 
   // ─── Notes and activity ─────────────────────────────────────────────────────

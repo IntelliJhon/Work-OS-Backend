@@ -107,6 +107,9 @@ leadsRouter.post('/:id/stage', handle(async (req, res, access) => {
 leadsRouter.delete('/:id', handle(async (req, res, access) => {
   res.json({ success: true, data: await LeadsService.archive(tenant(req), access, id.parse(req.params.id)) });
 }));
+leadsRouter.delete('/:id/permanent', handle(async (req, res, access) => {
+  res.json({ success: true, data: await LeadsService.remove(tenant(req), access, id.parse(req.params.id)) });
+}));
 leadsRouter.post('/:id/restore', handle(async (req, res, access) => {
   res.json({ success: true, data: await LeadsService.restore(tenant(req), access, id.parse(req.params.id)) });
 }));
