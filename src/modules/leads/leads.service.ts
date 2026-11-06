@@ -52,6 +52,24 @@ export interface LeadInput {
   budget?: string | null;
   timeline?: string | null;
 }
+/** A lead sent by a bot or form through the integrations endpoint */
+export interface IntakeInput {
+  phone: string;
+  name?: string | null;
+  company?: string | null;
+  email?: string | null;
+  city?: string | null;
+  service?: string | null;
+  requirement?: string | null;
+  budget?: string | null;
+  timeline?: string | null;
+  note?: string | null;
+  source?: LeadSource;
+  /** Shown in the lead's notes and first activity, e.g. "Lead from website" */
+  sourceLabel?: string | null;
+}
+/** Name used until the bot learns the person's real name */
+export const INTAKE_PLACEHOLDER_NAME = 'Website visitor';
 export interface StageInput {
   stage: LeadStage;
   requirement?: string | null;
@@ -169,7 +187,7 @@ export class LeadsService {
     return l;
   }
 
-  private static async log(tenantId: string, leadId: string, actorId: string, kind: LeadActivityKind, body: string | null, meta: Record<string, unknown> = {}) {
+  private static async log(tenantId: string, leadId: string, actorId: string | null, kind: LeadActivityKind, body: string | null, meta: Record<string, unknown> = {}) {
     await db.insert(leadActivity).values({ tenantId, leadId, actorId, kind, body, meta });
   }
 
@@ -325,6 +343,68 @@ export class LeadsService {
     }).returning();
     await this.log(tenantId, l.id, access.userId, 'created', `Added ${l.name}`);
     return this.view(tenantId, l);
+  }
+
+  /**
+   * Leads from bots and forms (n8n → /api/integrations/leads). One live lead per number: the first message creates
+   * it in "Lead created" with no owner; later calls only fill fields that are still empty (never overwrite what the
+   * team typed) and add an optional note. Activity has no actor, so it shows as coming from the bot.
+   */
+  static async intake(tenantId: string, input: IntakeInput): Promise<{ lead: Lead; created: boolean }> {
+    const phone = normalizePhone(input.phone);
+    // Bots send full international numbers; anything shorter than country code + number is not a real WhatsApp id
+    if (!phone || phone.replace(/\D/g, '').length < 10) throw new LeadError(400, 'phone', 'Invalid WhatsApp number');
+    const text = (v: string | null | undefined, max: number) => {
+      const t = blankToNull(v)?.replace(/\s+/g, ' ');
+      return t ? t.slice(0, max) : null;
+    };
+    const fields = {
+      company: text(input.company, 160),
+      email: text(input.email, 255)?.toLowerCase() ?? null,
+      city: text(input.city, 80),
+      service: text(input.service, 120),
+      requirement: blankToNull(input.requirement)?.slice(0, 2000) ?? null,
+      budget: text(input.budget, 80),
+      timeline: text(input.timeline, 80),
+    };
+    const name = text(input.name, 120);
+    const note = blankToNull(input.note)?.slice(0, 2000) ?? null;
+    const label = input.sourceLabel ? text(input.sourceLabel, 60) : 'Lead from website';
+
+    const [existing] = await db.select().from(leads).where(and(
+      eq(leads.tenantId, tenantId), isNull(leads.archivedAt), eq(leads.phone, phone),
+    )).orderBy(desc(leads.createdAt)).limit(1);
+
+    if (!existing) {
+      const [l] = await db.insert(leads).values({
+        tenantId,
+        phone,
+        name: name && name.length >= 2 ? name : INTAKE_PLACEHOLDER_NAME,
+        source: input.source ?? 'website',
+        ownerId: null,
+        notes: label,
+        ...Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== null)),
+      }).returning();
+      await this.log(tenantId, l.id, null, 'created', `${label} · added by the WAAU bot`, { via: 'intake' });
+      if (note) await this.log(tenantId, l.id, null, 'note', note, { via: 'intake' });
+      return { lead: l, created: true };
+    }
+
+    // Fill only what is still empty; the name only replaces the placeholder
+    const set: Partial<typeof leads.$inferInsert> = {};
+    for (const [key, value] of Object.entries(fields) as [keyof typeof fields, string | null][]) {
+      if (value && !(existing as any)[key]) (set as any)[key] = value;
+    }
+    if (name && name.length >= 2 && existing.name === INTAKE_PLACEHOLDER_NAME) set.name = name;
+    let lead = existing;
+    if (Object.keys(set).length) {
+      [lead] = await db.update(leads).set({ ...set, updatedAt: new Date() })
+        .where(and(eq(leads.id, existing.id), eq(leads.tenantId, tenantId))).returning();
+      const labels = Object.keys(set).map((k) => FIELD_LABELS[k as keyof LeadInput] ?? k);
+      await this.log(tenantId, existing.id, null, 'updated', `WAAU bot added ${listText(labels)}`, { via: 'intake', fields: set });
+    }
+    if (note) await this.log(tenantId, existing.id, null, 'note', note, { via: 'intake' });
+    return { lead, created: false };
   }
 
   static async update(tenantId: string, access: Access, leadId: string, input: LeadInput) {
@@ -517,7 +597,8 @@ export class LeadsService {
     return {
       items: page.map((r) => ({
         ...r,
-        actorName: r.actorId ? people.get(r.actorId) ?? null : null,
+        // Entries from the bot intake have no person; label them so the timeline reads "WAAU bot"
+        actorName: r.actorId ? people.get(r.actorId) ?? null : (r.meta as { via?: string })?.via === 'intake' ? 'WAAU bot' : null,
         canDelete: r.kind === 'note' && (access.admin || r.actorId === access.userId),
       })),
       hasMore: rows.length > ACTIVITY_PAGE,
