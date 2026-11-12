@@ -155,7 +155,8 @@ export async function checkTaskBalances(force = false) {
       if (!got.ok) continue;
       r = { remaining: got.remaining, total: got.total } as any;
     }
-    if (r && r.remaining !== null && r.remaining < env.TASK_LOW_LIMIT) low.push({ userId: w.userId, name: w.name, remaining: r.remaining, total: r.total ?? 0 });
+    // A client with no tasks allotted at all does not use automation: nothing to alert about
+    if (r && r.remaining !== null && (r.total ?? 0) > 0 && r.remaining < env.TASK_LOW_LIMIT) low.push({ userId: w.userId, name: w.name, remaining: r.remaining, total: r.total ?? 0 });
   }
   lastRoundDay = today;
   await sendLowTaskAlerts(low);
