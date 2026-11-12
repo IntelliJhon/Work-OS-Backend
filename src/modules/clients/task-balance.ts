@@ -116,7 +116,9 @@ export async function addTasks(input: { tenantId: string; userId: string; client
   });
   const data: any = await res.json().catch(() => null);
   const ok = res.ok && data?.success !== false;
-  const error = ok ? null : (data?.message || data?.error || `Partner API answered ${res.status}`);
+  // WAAU sometimes answers 200 with success:false and the reason in another field; keep the whole reply (short)
+  const reason = data?.message || data?.msg || data?.error || data?.errors || data?.data?.message;
+  const error = ok ? null : (reason ? String(typeof reason === 'string' ? reason : JSON.stringify(reason)) : `Partner API answered ${res.status}: ${JSON.stringify(data ?? null).slice(0, 300)}`);
   await db.insert(walletTopups).values({
     tenantId: input.tenantId, clientId: input.clientId, clientName: input.clientName, wallet: 'tasks',
     amount: String(env.TASK_ADDON_TASKS), note: input.note, status: ok ? 'done' : 'failed', error, addedBy: input.userId,
