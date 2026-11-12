@@ -13,6 +13,7 @@ import { startTimeLogReminders } from './modules/time-logs/time-logs.service';
 import { startLocationNames } from './modules/attendance/location-names';
 import { startLeadFollowUps } from './modules/leads/leads.service';
 import { startLowBalanceAlerts } from './modules/clients/low-balance-alerts';
+import { startTaskBalanceChecks } from './modules/clients/task-balance';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -34,6 +35,7 @@ const server = app.listen(env.PORT, async () => {
   startLocationNames();
   startLeadFollowUps();
   startLowBalanceAlerts();
+  startTaskBalanceChecks();
 });
 
 // Initialize Socket.IO with the HTTP server

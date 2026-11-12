@@ -379,6 +379,13 @@
       "when": 1792700000000,
       "tag": "0053_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0054_task_balance",
+      "breakpoints": true
     }
   ]
 }

@@ -70,6 +70,14 @@ const envSchema = z.object({
   AGENCY_LOW_COIN_LIMIT: z.coerce.number().min(0).optional().default(100),
   // Who gets the low-balance alerts (comma separated, with country code)
   LOW_BALANCE_ALERT_NUMBERS: z.string().optional().default('917736956474,917034887149'),
+  // WAAU automation tasks: alert below this many remaining (same numbers as above), read daily from this local hour
+  TASK_LOW_LIMIT: z.coerce.number().min(0).optional().default(200),
+  TASK_CHECK_HOUR: z.coerce.number().min(0).max(23).optional().default(10),
+  WHATSAPP_TASK_LOW_TEMPLATE: z.string().optional().default('low_task_alert'),
+  // The TASK add-on that adds tasks to a client ("External task x 1000"), and how long it is subscribed for
+  TASK_ADDON_PLAN_ID: z.string().optional().default('686e5c147d39c46e0f4f98e1'),
+  TASK_ADDON_TASKS: z.coerce.number().min(1).optional().default(1000),
+  TASK_ADDON_VALIDITY: z.enum(['30D', '90D', '180D', '360D']).optional().default('30D'),
   // Zoho Books (Billing section): Self Client id/secret and a refresh token from api-console.zoho.in; India data centre
   // by default. Without them the Billing section shows "Zoho Books is not connected".
   ZOHO_CLIENT_ID: z.string().optional(),

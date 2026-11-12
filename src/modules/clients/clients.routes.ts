@@ -28,6 +28,11 @@ clientsRouter.get('/wallet-topups', ClientsController.getWalletTopups as any);
 // POST /api/clients/:id/wallet-topup - Add balance to the main or a conversation wallet (Admins only)
 clientsRouter.post('/:id/wallet-topup', ClientsController.topUpWallet as any);
 
+// WAAU automation tasks: read now (Admins), add tasks via the TASK add-on (Admins), daily check + alert on/off
+clientsRouter.post('/:id/tasks/refresh', ClientsController.refreshTasks as any);
+clientsRouter.post('/:id/tasks/add', ClientsController.addTasks as any);
+clientsRouter.put('/:id/task-alert', ClientsController.setTaskAlert as any);
+
 // PUT /api/clients/:id/low-balance-alert - Low conversation-balance WhatsApp alert on/off for a client
 clientsRouter.put('/:id/low-balance-alert', ClientsController.setLowBalanceAlert as any);
 

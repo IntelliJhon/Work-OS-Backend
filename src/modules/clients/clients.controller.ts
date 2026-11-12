@@ -16,6 +16,7 @@ import { activeChannelsByUser, fetchAgencyWallets } from './partner-channels';
 import { lowBalanceWatch, walletTopups } from '../../db/schema/low_balance_alerts';
 import { roleAccess } from '../sections/role-access';
 import { TopUpError, topUpConversationWallet, topUpMainWallet } from './wallet-topups';
+import { addTasks, refreshTaskBalance, setTaskWatch, taskBalances } from './task-balance';
 
 /**
  * Where a stored document lives. The app asks with ?as=link and opens the URL itself: it sends the
@@ -141,9 +142,18 @@ export class ClientsController {
         return null;
       });
 
+      // WAAU automation tasks: last daily reading per client (no live calls here)
+      const tasks = await taskBalances().catch((err) => {
+        logger.warn({ msg: 'Could not load the task balances', error: err?.message });
+        return {};
+      });
+
       return res.json({
         success: true,
         canTopUp,
+        taskBalances: tasks,
+        taskLimit: env.TASK_LOW_LIMIT,
+        taskAddon: { tasks: env.TASK_ADDON_TASKS, validity: env.TASK_ADDON_VALIDITY },
         agencyWallets: agencyWallets
           ? { ...agencyWallets, mainLimit: env.AGENCY_LOW_MAIN_LIMIT, conversationLimit: env.AGENCY_LOW_COIN_LIMIT }
           : null,
@@ -218,6 +228,55 @@ export class ClientsController {
   }
 
   /** Switches the low conversation-balance WhatsApp alert on or off for one client */
+  /** Reads one client's automation task balance now (Admins) */
+  static async refreshTasks(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!(await roleAccess(req.user!.tenantId, req.user!.roleId)).admin) return res.status(403).json({ error: 'Only Admins can check tasks' });
+      const clientId = String(req.params.id);
+      if (!/^[a-f0-9]{24}$/i.test(clientId)) return res.status(400).json({ error: 'Invalid client id' });
+      const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 255) : null;
+      const r = await refreshTaskBalance(clientId, name);
+      if (!r.ok) return res.status(502).json({ error: `Could not read the tasks: ${r.error}` });
+      return res.json({ success: true, total: r.total, consumed: r.consumed, remaining: r.remaining });
+    } catch (err: any) {
+      logger.error({ msg: 'ClientsController.refreshTasks error', error: err.message });
+      return res.status(500).json({ error: 'Failed to read the tasks' });
+    }
+  }
+
+  /** Adds tasks: subscribes the client to the TASK add-on (Admins) */
+  static async addTasks(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user!.tenantId;
+      if (!(await roleAccess(tenantId, req.user!.roleId)).admin) return res.status(403).json({ error: 'Only Admins can add tasks' });
+      const clientId = String(req.params.id);
+      if (!/^[a-f0-9]{24}$/i.test(clientId)) return res.status(400).json({ error: 'Invalid client id' });
+      const r = await addTasks({
+        tenantId, userId: req.user!.id, clientId,
+        clientName: typeof req.body?.clientName === 'string' ? req.body.clientName.slice(0, 255) : null,
+        note: typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim().slice(0, 500) : null,
+      });
+      return res.json({ success: true, ...r });
+    } catch (err: any) {
+      if (err instanceof TopUpError) return res.status(err.status).json({ error: err.message });
+      logger.error({ msg: 'ClientsController.addTasks error', error: err.message });
+      return res.status(500).json({ error: 'Failed to add the tasks' });
+    }
+  }
+
+  /** Daily task balance check and low-task alert on/off for a client */
+  static async setTaskAlert(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const clientId = String(req.params.id);
+      if (!/^[a-f0-9]{24}$/i.test(clientId)) return res.status(400).json({ error: 'Invalid client id' });
+      const name = typeof req.body?.name === 'string' ? req.body.name : clientId;
+      return res.json({ success: true, ...(await setTaskWatch(clientId, name, req.body?.on === true, req.user!.id)) });
+    } catch (err: any) {
+      logger.error({ msg: 'ClientsController.setTaskAlert error', error: err.message });
+      return res.status(500).json({ error: 'Failed to change the task alert' });
+    }
+  }
+
   static async setLowBalanceAlert(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const clientId = String(req.params.id);
