@@ -372,6 +372,13 @@
       "when": 1792600000000,
       "tag": "0052_wallet_topup_source",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0053_billing",
+      "breakpoints": true
     }
   ]
 }

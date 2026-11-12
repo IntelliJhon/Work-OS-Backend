@@ -44,6 +44,7 @@ import { groupsRouter } from './modules/groups/groups.routes';
 import { workspaceClientsRouter } from './modules/workspace-clients/workspace-clients.routes';
 import { timeLogsRouter } from './modules/time-logs/time-logs.routes';
 import { leadsRouter } from './modules/leads/leads.routes';
+import { billingRouter } from './modules/billing/billing.routes';
 import { aiAssistantRouter } from './modules/ai-assistant/ai-assistant.routes';
 import { mcpRouter } from './modules/mcp/mcp-server';
 import { mcpKeysRouter } from './modules/mcp/mcp-keys.routes';
@@ -124,6 +125,7 @@ app.use('/api/groups', requireSection('groups') as any, groupsRouter);
 app.use('/api/workspace-clients', requireSection('clients') as any, workspaceClientsRouter);
 app.use('/api/time-logs', requireSection('tasks') as any, timeLogsRouter);
 app.use('/api/leads', requireSection('leads') as any, leadsRouter);
+app.use('/api/billing', billingRouter);
 // The assistant works on leads, so it follows the Leads section switch
 app.use('/api/ai', requireSection('leads') as any, aiAssistantRouter);
 app.use('/api/mcp-keys', mcpKeysRouter);

@@ -70,6 +70,21 @@ const envSchema = z.object({
   AGENCY_LOW_COIN_LIMIT: z.coerce.number().min(0).optional().default(100),
   // Who gets the low-balance alerts (comma separated, with country code)
   LOW_BALANCE_ALERT_NUMBERS: z.string().optional().default('917736956474,917034887149'),
+  // Zoho Books (Billing section): Self Client id/secret and a refresh token from api-console.zoho.in; India data centre
+  // by default. Without them the Billing section shows "Zoho Books is not connected".
+  ZOHO_CLIENT_ID: z.string().optional(),
+  ZOHO_CLIENT_SECRET: z.string().optional(),
+  ZOHO_REFRESH_TOKEN: z.string().optional(),
+  ZOHO_ORG_ID: z.string().optional().default('60095502655'),
+  ZOHO_ACCOUNTS_URL: z.string().optional().default('https://accounts.zoho.in'),
+  ZOHO_API_BASE: z.string().optional().default('https://www.zohoapis.in/books/v3'),
+  // Invoice PDF template (Standard - India GST Style, set up 2026-11-12); empty = the organization's default
+  ZOHO_INVOICE_TEMPLATE_ID: z.string().optional().default('4341043000000045002'),
+  // Our GST state code (Kerala): same state → CGST + SGST, other states → IGST
+  ZOHO_HOME_STATE: z.string().optional().default('KL'),
+  // Payment receipt to a client: document header (the Zoho receipt PDF); {{1}} client name, {{2}} amount, {{3}} date,
+  // {{4}} reference
+  WHATSAPP_PAYMENT_RECEIPT_TEMPLATE: z.string().optional().default('payment_receipt'),
   // Claude API key for the AI features (group chat summaries, WhatsApp "Work OS AI" answers); without it they are off
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().optional().default('claude-opus-5-5'),
