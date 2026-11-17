@@ -31,6 +31,7 @@ import projectActivitiesRouter from './modules/project-activities/project-activi
 import { clientsRouter } from './modules/clients/clients.routes';
 import { complaintsRouter } from './modules/complaints/complaints.routes';
 import { workReportsRouter } from './modules/work-reports/work-reports.routes';
+import { workReportsIntakeRouter } from './modules/work-reports/work-reports-intake.routes';
 import clientEnquiriesRouter from './modules/clients/client-enquiries.routes';
 import expiryCronRouter from './modules/cron/expiry-cron.routes';
 import { voiceNotesRouter, integrationsRouter } from './modules/voice-notes/voice-notes.routes';
@@ -113,6 +114,7 @@ app.use('/api/work-reports', workReportsRouter);
 app.use('/api/cron', expiryCronRouter);
 app.use('/api/voice-notes', requireSection('voice_notes') as any, voiceNotesRouter);
 app.use('/api/integrations/leads', leadsIntakeRouter);
+app.use('/api/integrations/work-reports', workReportsIntakeRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/platform/workspaces', platformWorkspacesRouter);
 app.use('/api/platform', platformRouter);
