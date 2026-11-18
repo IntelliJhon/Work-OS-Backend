@@ -45,6 +45,13 @@ const sequenceSchema = z.object({
 campaignsRouter.get('/', handle(async (req, res, admin) => {
   res.json({ success: true, data: await CampaignsService.listSequences(req.user!.tenantId), isAdmin: admin });
 }));
+campaignsRouter.get('/template-sets', handle(async (_req, res) => {
+  res.json({ success: true, data: await CampaignsService.templateSets() });
+}));
+campaignsRouter.get('/preview', handle(async (req, res) => {
+  const category = typeof req.query.category === 'string' ? req.query.category.slice(0, 80) : '';
+  res.json({ success: true, data: await CampaignsService.preview(req.user!.tenantId, category) });
+}));
 campaignsRouter.post('/', handle(async (req, res) => {
   res.status(201).json({ success: true, data: await CampaignsService.saveSequence(req.user!.tenantId, req.user!.id, sequenceSchema.parse(req.body)) });
 }, true));

@@ -107,6 +107,81 @@ export class CampaignsService {
     return (await this.listSequences(tenantId)).find((s) => s.id === id)!;
   }
 
+  /**
+   * Template sets from WAAU: approved/pending templates named <set>_day<N> and <set>_monthly, grouped by <set>
+   * (e.g. society_ml_day1 … society_ml_monthly → "society_ml"). The monthly one goes 30 days after the last day and then
+   * repeats. Variables are filled in order: contact name, company, category, subcategory.
+   */
+  static async templateSets() {
+    if (!env.CRM_WABA_ID) return [];
+    const all: any[] = [];
+    let url: string | null = `${(env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, '')}/v19.0/${env.CRM_WABA_ID}/message_templates?limit=200`;
+    for (let page = 0; url && page < 10; page++) {
+      const res: Response = await fetch(url, { headers: { Authorization: `Bearer ${env.CRM_API_ACCESS_TOKEN ?? ''}` }, signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new CampaignError(502, 'waau', `WAAU templates could not be loaded (${res.status})`);
+      const j: any = await res.json();
+      all.push(...(j.data ?? []));
+      url = j.paging?.next ?? null;
+    }
+    const sets = new Map<string, { name: string; steps: { day: number; templateName: string; language: string; status: string; params: CampaignParam[]; buttons: string[]; monthly: boolean }[] }>();
+    for (const t of all) {
+      const m = /^(.+)_(?:day(\d{1,3})|monthly)$/.exec(String(t.name ?? ''));
+      if (!m || String(t.status).toUpperCase() === 'REJECTED') continue;
+      const body = (t.components ?? []).find((c: any) => c.type === 'BODY')?.text ?? '';
+      const vars = new Set(String(body).match(/\{\{\d+\}\}/g) ?? []).size;
+      const buttons = ((t.components ?? []).find((c: any) => c.type === 'BUTTONS')?.buttons ?? []).map((b: any) => String(b.text ?? ''));
+      if (!sets.has(m[1])) sets.set(m[1], { name: m[1], steps: [] });
+      sets.get(m[1])!.steps.push({
+        day: m[2] ? Number(m[2]) : 0, templateName: t.name, language: t.language || 'en', status: String(t.status || '').toUpperCase(),
+        params: CAMPAIGN_PARAMS.slice(0, Math.min(vars, CAMPAIGN_PARAMS.length)) as unknown as CampaignParam[], buttons, monthly: !m[2],
+      });
+    }
+    return [...sets.values()].map((s) => {
+      const days = s.steps.filter((x) => !x.monthly).sort((a, b) => a.day - b.day);
+      const monthly = s.steps.find((x) => x.monthly);
+      if (monthly) monthly.day = Math.min((days[days.length - 1]?.day ?? 0) + 30, 365);
+      const steps = monthly ? [...days, monthly] : days;
+      return {
+        name: s.name,
+        language: steps[0]?.language ?? 'en',
+        approved: steps.filter((x) => x.status === 'APPROVED').length,
+        total: steps.length,
+        hasMonthly: !!monthly,
+        steps,
+      };
+    }).filter((s) => s.steps.length).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Who a campaign for this category would reach: Enquiry List contacts and open leads, and who is skipped */
+  static async preview(tenantId: string, category: string) {
+    const cat = lc(category);
+    if (!cat) return { total: 0, willJoin: 0, contacts: [] };
+    const [leadRows, enquiryRows, optouts, busy] = await Promise.all([
+      db.select({ id: leads.id, name: leads.name, company: leads.company, phone: leads.phone, subcategory: leads.subcategory }).from(leads).where(and(
+        eq(leads.tenantId, tenantId), isNull(leads.archivedAt), sql`lower(${leads.category}) = ${cat}`, sql`${leads.stage} not in ('accepted','rejected')`,
+      )),
+      db.select({ id: clientEnquiries.id, name: clientEnquiries.clientName, phone: clientEnquiries.number, subcategory: clientEnquiries.subcategory })
+        .from(clientEnquiries).where(and(eq(clientEnquiries.tenantId, tenantId), sql`lower(${clientEnquiries.category}) = ${cat}`)),
+      db.select({ phone: campaignOptouts.phone }).from(campaignOptouts).where(eq(campaignOptouts.tenantId, tenantId)),
+      db.select({ phone: campaignEnrolments.phone, category: campaignEnrolments.category, status: campaignEnrolments.status }).from(campaignEnrolments)
+        .where(and(eq(campaignEnrolments.tenantId, tenantId))),
+    ]);
+    const opted = new Set(optouts.map((o) => o.phone));
+    const active = new Map(busy.filter((b) => b.status !== 'stopped').map((b) => [b.phone, b.category]));
+    const doneHere = new Set(busy.filter((b) => b.status === 'stopped' && lc(b.category) === cat).map((b) => b.phone));
+    const contacts = [
+      ...enquiryRows.map((e) => ({ kind: 'enquiry' as const, id: e.id, name: e.name, company: null as string | null, phone: e.phone, subcategory: e.subcategory })),
+      ...leadRows.map((l) => ({ kind: 'lead' as const, id: l.id, name: l.name, company: l.company, phone: l.phone, subcategory: l.subcategory })),
+    ].map((c) => {
+      const phone = normalizePhone(c.phone);
+      const skip = !phone ? 'No valid WhatsApp number' : opted.has(phone) ? 'Opted out'
+        : active.has(phone) ? (lc(active.get(phone)) === cat ? 'Already in this campaign' : `In the ${active.get(phone)} campaign`)
+          : doneHere.has(phone) ? 'Already went through this campaign' : null;
+      return { ...c, phone: phone ?? c.phone, skip };
+    });
+    return { total: contacts.length, willJoin: contacts.filter((c) => !c.skip).length, contacts: contacts.slice(0, 500) };
+  }
+
   static async deleteSequence(tenantId: string, id: string) {
     await db.delete(campaignSequences).where(and(eq(campaignSequences.id, id), eq(campaignSequences.tenantId, tenantId)));
     return { deleted: true };
