@@ -44,6 +44,8 @@ export interface LeadInput {
   city?: string | null;
   source?: LeadSource;
   service?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
   expectedValue?: number | null;
   ownerId?: string | null;
   nextFollowUpAt?: string | null;
@@ -56,6 +58,8 @@ export interface LeadInput {
 /** A lead sent by a bot or form through the integrations endpoint */
 export interface IntakeInput {
   phone: string;
+  category?: string | null;
+  subcategory?: string | null;
   name?: string | null;
   company?: string | null;
   email?: string | null;
@@ -122,6 +126,8 @@ const FIELD_LABELS: Record<keyof LeadInput, string> = {
   city: 'city',
   source: 'source',
   service: 'interested in',
+  category: 'category',
+  subcategory: 'subcategory',
   expectedValue: 'expected value',
   ownerId: 'owner',
   nextFollowUpAt: 'next follow-up',
@@ -220,6 +226,8 @@ export class LeadsService {
     if (input.city !== undefined) out.city = blankToNull(input.city);
     if (input.source !== undefined) out.source = input.source;
     if (input.service !== undefined) out.service = blankToNull(input.service);
+    if (input.category !== undefined) out.category = blankToNull(input.category)?.replace(/\s+/g, ' ').slice(0, 80) ?? null;
+    if (input.subcategory !== undefined) out.subcategory = blankToNull(input.subcategory)?.replace(/\s+/g, ' ').slice(0, 80) ?? null;
     if (input.expectedValue !== undefined) out.expectedValue = money(input.expectedValue);
     if (input.ownerId !== undefined) {
       if (input.ownerId && !(await activeMember(tenantId, input.ownerId))) {
@@ -289,6 +297,8 @@ export class LeadsService {
       city: l.city,
       source: l.source,
       service: l.service,
+      category: l.category,
+      subcategory: l.subcategory,
       expectedValue: l.expectedValue,
       stage: l.stage,
       stageChangedAt: l.stageChangedAt,
@@ -366,6 +376,8 @@ export class LeadsService {
       email: text(input.email, 255)?.toLowerCase() ?? null,
       city: text(input.city, 80),
       service: text(input.service, 120),
+      category: text(input.category, 80),
+      subcategory: text(input.subcategory, 80),
       requirement: blankToNull(input.requirement)?.slice(0, 2000) ?? null,
       budget: text(input.budget, 80),
       timeline: text(input.timeline, 80),
@@ -515,6 +527,9 @@ export class LeadsService {
         phone: l.phone,
         email: l.email,
         city: l.city,
+        // The lead's category carries over to the client
+        category: l.category?.slice(0, 60) ?? null,
+        subcategory: l.subcategory,
         status: 'active',
         clientSince: today,
         notes: [l.service, l.requirement].filter(Boolean).join('\n\n') || null,
@@ -528,6 +543,13 @@ export class LeadsService {
       )).limit(1);
       clientId = existing.id;
       created = false;
+      // Linked to an existing client: give it the lead's category only where it has none
+      if (l.category || l.subcategory) {
+        await db.update(workspaceClients).set({
+          category: sql`coalesce(${workspaceClients.category}, ${l.category?.slice(0, 60) ?? null})`,
+          subcategory: sql`coalesce(${workspaceClients.subcategory}, ${l.subcategory ?? null})`,
+        }).where(eq(workspaceClients.id, clientId));
+      }
     }
     const [updated] = await db.update(leads).set({ clientId, updatedAt: new Date() }).where(eq(leads.id, l.id)).returning();
     await this.log(tenantId, l.id, access.userId, 'client', created ? `Added ${name} to Clients` : `Linked to the existing client ${name}`, { clientId });

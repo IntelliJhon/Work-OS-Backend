@@ -19,6 +19,7 @@ export const workspaceClients = pgTable('workspace_clients', {
   address: text('address'),
   gstNumber: varchar('gst_number', { length: 20 }),
   category: varchar('category', { length: 60 }),
+  subcategory: varchar('subcategory', { length: 80 }),
   status: varchar('status', { length: 12 }).$type<ClientStatus>().default('active').notNull(),
   accountManagerId: uuid('account_manager_id').references(() => users.id, { onDelete: 'set null' }),
   clientSince: date('client_since'),

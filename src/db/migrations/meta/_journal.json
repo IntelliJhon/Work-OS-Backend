@@ -393,6 +393,13 @@
       "when": 1792900000000,
       "tag": "0055_client_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0056_lead_categories",
+      "breakpoints": true
     }
   ]
 }

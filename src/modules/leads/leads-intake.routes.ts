@@ -28,6 +28,8 @@ const intakeSchema = z.object({
   email: opt(255),
   city: opt(80),
   service: opt(120),
+  category: opt(80),
+  subcategory: opt(80),
   requirement: opt(2000),
   budget: opt(80),
   timeline: opt(80),

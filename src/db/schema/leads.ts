@@ -9,7 +9,7 @@ import { workspaceClients } from './workspace_clients';
 
 export const LEAD_STAGES = ['new', 'contacted', 'requirement', 'proposal', 'follow_up', 'accepted', 'rejected'] as const;
 export type LeadStage = typeof LEAD_STAGES[number];
-export const LEAD_SOURCES = ['manual', 'whatsapp', 'website', 'referral', 'call', 'walk_in', 'social', 'other'] as const;
+export const LEAD_SOURCES = ['manual', 'whatsapp', 'website', 'meta_ad', 'referral', 'call', 'walk_in', 'social', 'other'] as const;
 export type LeadSource = typeof LEAD_SOURCES[number];
 export const REJECT_REASONS = ['price', 'timing', 'competitor', 'no_response', 'not_needed', 'other'] as const;
 export type RejectReason = typeof REJECT_REASONS[number];
@@ -26,6 +26,9 @@ export const leads = pgTable('leads', {
   city: varchar('city', { length: 80 }),
   source: varchar('source', { length: 20 }).$type<LeadSource>().default('manual').notNull(),
   service: varchar('service', { length: 120 }),
+  // Category / subcategory (migration 0056), copied to the Client when the lead is accepted
+  category: varchar('category', { length: 80 }),
+  subcategory: varchar('subcategory', { length: 80 }),
   expectedValue: numeric('expected_value', { precision: 12, scale: 2 }),
   stage: varchar('stage', { length: 20 }).$type<LeadStage>().default('new').notNull(),
   stageChangedAt: timestamp('stage_changed_at', { withTimezone: true }).defaultNow().notNull(),

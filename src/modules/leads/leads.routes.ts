@@ -22,6 +22,8 @@ const fields = {
   city: opt(80),
   source: z.enum(LEAD_SOURCES),
   service: opt(120),
+  category: opt(80),
+  subcategory: opt(80),
   expectedValue: amount,
   ownerId: z.union([z.literal(''), z.string().uuid()]).nullish(),
   nextFollowUpAt: when,

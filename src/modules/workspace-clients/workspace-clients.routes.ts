@@ -21,6 +21,7 @@ const fields = {
   address: opt(500),
   gstNumber: opt(20),
   category: opt(60),
+  subcategory: opt(80),
   status: z.enum(['active', 'on_hold', 'former']),
   accountManagerId: z.union([z.literal(''), z.string().uuid()]).nullish(),
   clientSince: z.union([z.literal(''), z.string().refine(isRealDay, 'Invalid date')]).nullish(),

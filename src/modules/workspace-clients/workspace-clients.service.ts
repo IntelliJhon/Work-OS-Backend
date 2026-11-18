@@ -35,6 +35,7 @@ export interface ClientInput {
   address?: string | null;
   gstNumber?: string | null;
   category?: string | null;
+  subcategory?: string | null;
   status?: ClientStatus;
   accountManagerId?: string | null;
   clientSince?: string | null;
@@ -55,6 +56,7 @@ const FIELD_LABELS: Record<keyof ClientInput, string> = {
   address: 'address',
   gstNumber: 'GST number',
   category: 'category',
+  subcategory: 'subcategory',
   status: 'status',
   accountManagerId: 'account manager',
   clientSince: 'client since',
@@ -152,6 +154,7 @@ export class WorkspaceClientsService {
       out.gstNumber = gst;
     }
     if (input.category !== undefined) out.category = blankToNull(input.category);
+    if (input.subcategory !== undefined) out.subcategory = blankToNull(input.subcategory)?.slice(0, 80) ?? null;
     if (input.status !== undefined) out.status = input.status;
     if (input.accountManagerId !== undefined) {
       if (input.accountManagerId && !(await activeMember(tenantId, input.accountManagerId))) {
@@ -227,6 +230,7 @@ export class WorkspaceClientsService {
       email: c.email,
       city: c.city,
       category: c.category,
+      subcategory: c.subcategory,
       status: c.status,
       tags: c.tags,
       accountManagerId: c.accountManagerId,
