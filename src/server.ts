@@ -14,6 +14,7 @@ import { startLocationNames } from './modules/attendance/location-names';
 import { startLeadFollowUps } from './modules/leads/leads.service';
 import { startLowBalanceAlerts } from './modules/clients/low-balance-alerts';
 import { startTaskBalanceChecks } from './modules/clients/task-balance';
+import { startCampaigns } from './modules/campaigns/campaigns.service';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -36,6 +37,7 @@ const server = app.listen(env.PORT, async () => {
   startLeadFollowUps();
   startLowBalanceAlerts();
   startTaskBalanceChecks();
+  startCampaigns();
 });
 
 // Initialize Socket.IO with the HTTP server

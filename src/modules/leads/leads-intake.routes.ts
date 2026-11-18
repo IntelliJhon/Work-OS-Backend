@@ -7,6 +7,7 @@ import { LEAD_SOURCES } from '../../db/schema/leads';
 import { requireIntegrationSecret } from '../voice-notes/voice-integration.controller';
 import { SectionsService } from '../sections/sections.service';
 import { LeadsService, LeadError } from './leads.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { logger } from '../../config/logger';
 import { maskPhone } from '../../lib/phone';
 
@@ -52,6 +53,9 @@ leadsIntakeRouter.post('/', requireIntegrationSecret, async (req: Request, res: 
     }
     const { workspace: _w, ...input } = body;
     const { lead, created } = await LeadsService.intake(tenant.id, input);
+    if (lead.category && !['accepted', 'rejected'].includes(lead.stage)) {
+      CampaignsService.enrolQuietly(tenant.id, { kind: 'lead', refId: lead.id, phone: lead.phone, name: lead.name, company: lead.company, category: lead.category, subcategory: lead.subcategory });
+    }
     logger.info({ tenantId: tenant.id, leadId: lead.id, created, to: maskPhone(lead.phone) }, '[Leads] Intake');
     return res.status(created ? 201 : 200).json({ leadId: lead.id, created, name: lead.name, stage: lead.stage });
   } catch (err) {

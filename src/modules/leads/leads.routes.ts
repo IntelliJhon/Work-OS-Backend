@@ -6,6 +6,7 @@ import { uploadLimiter } from '../../middleware/rateLimiter';
 import { allows, roleAccess } from '../sections/role-access';
 import { LEAD_SOURCES, LEAD_STAGES, REJECT_REASONS } from '../../db/schema/leads';
 import { LeadError, LeadsService, type Access } from './leads.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 
 // Leads: enquiries moved through stages on a board. Who may do what is decided in LeadsService from the role's
 // current permissions (lead.read, lead.manage; Admins always).
@@ -95,13 +96,21 @@ leadsRouter.get('/people', handle(async (req, res, access) => {
 }));
 leadsRouter.post('/', handle(async (req, res, access) => {
   const { allowDuplicate, ...input } = createSchema.parse(req.body);
-  res.status(201).json({ success: true, data: await LeadsService.create(tenant(req), access, input as any, allowDuplicate) });
+  const lead = await LeadsService.create(tenant(req), access, input as any, allowDuplicate);
+  CampaignsService.enrolQuietly(tenant(req), { kind: 'lead', refId: lead.id, phone: lead.phone, name: lead.name, company: lead.company, category: lead.category, subcategory: lead.subcategory });
+  res.status(201).json({ success: true, data: lead });
 }));
 leadsRouter.get('/:id', handle(async (req, res, access) => {
   res.json({ success: true, data: await LeadsService.get(tenant(req), access, id.parse(req.params.id)), canManage: access.manage, isAdmin: access.admin });
 }));
 leadsRouter.patch('/:id', handle(async (req, res, access) => {
-  res.json({ success: true, data: await LeadsService.update(tenant(req), access, id.parse(req.params.id), updateSchema.parse(req.body) as any) });
+  const input = updateSchema.parse(req.body);
+  const lead = await LeadsService.update(tenant(req), access, id.parse(req.params.id), input as any);
+  // Given a category now: joins that category's campaign (if it has one and they are not in one)
+  if (input.category && !['accepted', 'rejected'].includes(lead.stage)) {
+    CampaignsService.enrolQuietly(tenant(req), { kind: 'lead', refId: lead.id, phone: lead.phone, name: lead.name, company: lead.company, category: lead.category, subcategory: lead.subcategory });
+  }
+  res.json({ success: true, data: lead });
 }));
 leadsRouter.post('/:id/stage', handle(async (req, res, access) => {
   res.json({ success: true, data: await LeadsService.moveStage(tenant(req), access, id.parse(req.params.id), stageSchema.parse(req.body) as any) });

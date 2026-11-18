@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { categoryFields } from './client-category';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { db } from '../../db';
 import { clientEnquiries } from '../../db/schema/client_enquiries';
@@ -68,6 +69,7 @@ export class ClientEnquiriesController {
         })
         .returning();
 
+      CampaignsService.enrolQuietly(tenantId, { kind: 'enquiry', refId: newEntry.id, phone: newEntry.number, name: newEntry.clientName, category: newEntry.category, subcategory: newEntry.subcategory });
       return res.status(201).json({
         success: true,
         data: newEntry,
@@ -118,6 +120,12 @@ export class ClientEnquiriesController {
         .values(rowsToInsert)
         .returning();
 
+      // One by one in the background (each checks for an existing sequence or opt-out)
+      void (async () => {
+        for (const e of inserted) {
+          await CampaignsService.enrol(tenantId, { kind: 'enquiry', refId: e.id, phone: e.number, name: e.clientName, category: e.category, subcategory: e.subcategory }).catch(() => undefined);
+        }
+      })();
       return res.status(201).json({
         success: true,
         count: inserted.length,
@@ -160,6 +168,9 @@ export class ClientEnquiriesController {
         return res.status(404).json({ error: 'Enquiry client record not found' });
       }
 
+      if (req.body?.category) {
+        CampaignsService.enrolQuietly(tenantId, { kind: 'enquiry', refId: updated.id, phone: updated.number, name: updated.clientName, category: updated.category, subcategory: updated.subcategory });
+      }
       return res.json({
         success: true,
         data: updated,
