@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar, text, index } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, text, index, boolean } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants';
 
 export const clientOnboarding = pgTable('client_onboarding', {
@@ -14,6 +14,11 @@ export const clientOnboarding = pgTable('client_onboarding', {
   assignedTo: varchar('assigned_to', { length: 255 }),
   targetDate: varchar('target_date', { length: 50 }),
   notes: text('notes'),
+  // Categorization (migration 0055)
+  category: varchar('category', { length: 80 }),
+  subcategory: varchar('subcategory', { length: 80 }),
+  usesSoftware: boolean('uses_software'),
+  softwareName: varchar('software_name', { length: 120 }),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { categoryFields } from './client-category';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { db } from '../../db';
 import { clientEnquiries } from '../../db/schema/client_enquiries';
@@ -62,6 +63,7 @@ export class ClientEnquiriesController {
           email: email?.trim() || null,
           remarks: remarks?.trim() || null,
           sourceSheetName: sourceSheetName?.trim() || null,
+          ...categoryFields(req.body ?? {}),
           createdBy,
         })
         .returning();
@@ -103,6 +105,7 @@ export class ClientEnquiriesController {
           email: item.email ? String(item.email).trim() : null,
           remarks: item.remarks ? String(item.remarks).trim() : null,
           sourceSheetName: sourceSheetName?.trim() || item.sourceSheetName || 'Uploaded Sheet',
+          ...categoryFields(item ?? {}),
           createdBy,
         }));
 
@@ -147,6 +150,7 @@ export class ClientEnquiriesController {
           ...(number !== undefined && { number: number.trim() }),
           ...(email !== undefined && { email: email?.trim() || null }),
           ...(remarks !== undefined && { remarks: remarks?.trim() || null }),
+          ...categoryFields(req.body ?? {}),
           updatedAt: new Date(),
         })
         .where(and(eq(clientEnquiries.id, id), eq(clientEnquiries.tenantId, tenantId)))

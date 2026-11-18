@@ -17,6 +17,7 @@ import { lowBalanceWatch, walletTopups } from '../../db/schema/low_balance_alert
 import { roleAccess } from '../sections/role-access';
 import { TopUpError, topUpConversationWallet, topUpMainWallet } from './wallet-topups';
 import { addTasks, refreshTaskBalance, setTaskWatch, taskBalances } from './task-balance';
+import { categoryFields } from './client-category';
 
 /**
  * Where a stored document lives. The app asks with ?as=link and opens the URL itself: it sends the
@@ -666,6 +667,7 @@ export class ClientsController {
           assignedTo: assignedTo?.trim() || null,
           targetDate: targetDate?.trim() || null,
           notes: notes?.trim() || null,
+          ...categoryFields(req.body ?? {}),
           createdBy,
         })
         .returning();
@@ -715,6 +717,7 @@ export class ClientsController {
           ...(assignedTo !== undefined && { assignedTo: assignedTo.trim() }),
           ...(targetDate !== undefined && { targetDate: targetDate.trim() }),
           ...(notes !== undefined && { notes: notes.trim() }),
+          ...categoryFields(req.body ?? {}),
           updatedAt: new Date(),
         })
         .where(and(eq(clientOnboarding.id, id), eq(clientOnboarding.tenantId, tenantId)))

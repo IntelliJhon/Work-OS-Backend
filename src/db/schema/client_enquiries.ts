@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar, text, index } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, uuid, varchar, text, index, boolean } from 'drizzle-orm/pg-core';
 
 export const clientEnquiries = pgTable('client_enquiries', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -8,6 +8,11 @@ export const clientEnquiries = pgTable('client_enquiries', {
   email: varchar('email', { length: 255 }),
   remarks: text('remarks'),
   sourceSheetName: varchar('source_sheet_name', { length: 255 }),
+  // Categorization (migration 0055)
+  category: varchar('category', { length: 80 }),
+  subcategory: varchar('subcategory', { length: 80 }),
+  usesSoftware: boolean('uses_software'),
+  softwareName: varchar('software_name', { length: 120 }),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
