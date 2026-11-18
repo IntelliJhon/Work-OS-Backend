@@ -151,9 +151,7 @@ export class WorkReportsController {
 
   /**
    * Update an existing work report
-   * ONLY allowed for:
-   * 1. The employee who authored the report or target employee (authorId / authorEmail / employeeId match)
-   * 2. An Admin user
+   * Admins only (developers and Project Managers can add reports but not change them)
    */
   static async update(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -176,23 +174,16 @@ export class WorkReportsController {
       }
 
       // Authorization Check
-      const userId = req.user?.id || (req.user as any)?.sub;
-      const userEmail = (req.user as any)?.email?.toLowerCase();
       const userRole = (req.user as any)?.role || (req.user as any)?.roleName || '';
       const isUserAdmin =
         userRole.toLowerCase().includes('admin') ||
         userRole.toLowerCase() === 'superadmin' ||
         userRole.toLowerCase() === 'tenant admin';
 
-      const isAuthor =
-        userId === report.authorId ||
-        (userEmail && userEmail === report.authorEmail?.toLowerCase()) ||
-        userId === report.employeeId ||
-        (userEmail && userEmail === report.employeeId?.toLowerCase());
-
-      if (!isUserAdmin && !isAuthor) {
+      // Saved reports are a record: only Admins may edit them (developers and Project Managers can only add)
+      if (!isUserAdmin) {
         return res.status(403).json({
-          error: 'Permission denied: You can only edit your own work reports, unless you are an Admin.',
+          error: 'Permission denied: Only Admins can edit work reports.',
         });
       }
       if (report.taskId && report.minutes != null) {
@@ -286,23 +277,16 @@ export class WorkReportsController {
       }
 
       // Authorization Check
-      const userId = req.user?.id || (req.user as any)?.sub;
-      const userEmail = (req.user as any)?.email?.toLowerCase();
       const userRole = (req.user as any)?.role || (req.user as any)?.roleName || '';
       const isUserAdmin =
         userRole.toLowerCase().includes('admin') ||
         userRole.toLowerCase() === 'superadmin' ||
         userRole.toLowerCase() === 'tenant admin';
 
-      const isAuthor =
-        userId === report.authorId ||
-        (userEmail && userEmail === report.authorEmail?.toLowerCase()) ||
-        userId === report.employeeId ||
-        (userEmail && userEmail === report.employeeId?.toLowerCase());
-
-      if (!isUserAdmin && !isAuthor) {
+      // Saved reports are a record: only Admins may delete them (developers and Project Managers can only add)
+      if (!isUserAdmin) {
         return res.status(403).json({
-          error: 'Permission denied: You can only delete your own work reports, unless you are an Admin.',
+          error: 'Permission denied: Only Admins can delete work reports.',
         });
       }
       if (report.taskId && report.minutes != null) {
