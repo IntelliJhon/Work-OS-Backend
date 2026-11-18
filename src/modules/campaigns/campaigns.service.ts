@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import {
-  CAMPAIGN_PARAMS, campaignEnrolments, campaignMessages, campaignOptouts, campaignSequences, campaignSteps,
+  CAMPAIGN_PARAMS, campaignBatches, campaignEnrolments, campaignMessages, campaignOptouts, campaignSequences, campaignSteps,
   type CampaignParam, type EnrolmentKind, type StopReason,
 } from '../../db/schema/campaigns';
 import { leadActivity, leads } from '../../db/schema/leads';
@@ -14,7 +14,7 @@ import { everyRound } from '../../jobs/background-clock';
 
 /**
  * Category campaigns. Each category can have a sequence of approved WhatsApp templates (Day 1, 3, 7, 15, 30, then
- * every N days). Leads and Enquiry List contacts with that category join it automatically when they are added (or get
+ * every N days), sent through WAAU's Bulk Campaign API. Leads and Enquiry List contacts with that category join it automatically when they are added (or get
  * the category), or in bulk from the Campaigns page. Messages go out with the background clock in working hours.
  *
  * A contact's sequence stops when they reply, tap a button (Interested / Book a demo → the sales team is alerted and the
@@ -32,8 +32,8 @@ const DAY = 24 * 3600 * 1000;
 // Messages only go out between these local hours (WORK_TIMEZONE)
 const SEND_FROM_HOUR = 9;
 const SEND_UNTIL_HOUR = 19;
-// At most this many messages per background round (every 15 min), to spread the load
-const MAX_PER_ROUND = 40;
+// At most this many contacts per background round (every 15 min); each message goes out as one WAAU bulk campaign
+const MAX_PER_ROUND = 500;
 
 const localHour = (d: Date) => Number(d.toLocaleString('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: env.WORK_TIMEZONE }));
 const lc = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
@@ -53,8 +53,13 @@ export class CampaignsService {
       sequenceId: campaignEnrolments.sequenceId, status: campaignEnrolments.status, reason: campaignEnrolments.stopReason, n: sql<number>`count(*)::int`,
     }).from(campaignEnrolments).where(inArray(campaignEnrolments.sequenceId, ids))
       .groupBy(campaignEnrolments.sequenceId, campaignEnrolments.status, campaignEnrolments.stopReason) : [];
+    const reports = ids.length ? await db.select({
+      sequenceId: campaignBatches.sequenceId, recipients: sql<number>`sum(${campaignBatches.recipients})::int`, delivered: sql<number>`sum(${campaignBatches.delivered})::int`,
+      read: sql<number>`sum(${campaignBatches.read})::int`, replied: sql<number>`sum(${campaignBatches.replied})::int`, failed: sql<number>`sum(${campaignBatches.failed})::int`,
+    }).from(campaignBatches).where(inArray(campaignBatches.sequenceId, ids)).groupBy(campaignBatches.sequenceId) : [];
     return seqs.map((s) => {
       const mine = counts.filter((c) => c.sequenceId === s.id);
+      const rep = reports.find((r) => r.sequenceId === s.id);
       const stopped: Record<string, number> = {};
       for (const c of mine) if (c.status === 'stopped' && c.reason) stopped[c.reason] = (stopped[c.reason] ?? 0) + c.n;
       return {
@@ -64,6 +69,8 @@ export class CampaignsService {
           active: mine.filter((c) => c.status === 'active').reduce((a, c) => a + c.n, 0),
           paused: mine.filter((c) => c.status === 'paused').reduce((a, c) => a + c.n, 0),
           stopped,
+          // WAAU report totals (all messages sent so far)
+          messages: { sent: rep?.recipients ?? 0, delivered: rep?.delivered ?? 0, read: rep?.read ?? 0, replied: rep?.replied ?? 0, failed: rep?.failed ?? 0 },
         },
       };
     });
@@ -200,10 +207,31 @@ export class CampaignsService {
     return null;
   }
 
+  /** WAAU Bulk Campaign API: one campaign to many numbers, each with its own variables */
+  private static async waau(method: string, path: string, body?: unknown): Promise<any> {
+    const base = (env.CRM_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/api\/meta\/?$/, '').replace(/\/$/, '');
+    const res = await fetch(`${base}${path}`, {
+      method, signal: AbortSignal.timeout(30_000),
+      headers: { 'API-KEY': env.CRM_API_ACCESS_TOKEN ?? '', Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data: any = await res.json().catch(() => null);
+    if (!res.ok || data?.success === false) throw new Error(String(data?.message || data?.error || data?.data || `WAAU answered ${res.status}`).slice(0, 300));
+    return data;
+  }
+
   static async sendDue() {
     const now = new Date();
     const hour = localHour(now);
-    if (hour < SEND_FROM_HOUR || hour >= SEND_UNTIL_HOUR) return;
+    if (hour >= SEND_FROM_HOUR && hour < SEND_UNTIL_HOUR) await this.sendRound(now);
+    await this.refreshReports().catch((err) => logger.warn({ err: err?.message }, '[Campaigns] Report refresh failed'));
+  }
+
+  /**
+   * Everyone due now, grouped by message (sequence + step): each group goes out as one WAAU bulk campaign.
+   * The group is marked sent once WAAU accepts the campaign; a refused one is retried a few hours later.
+   */
+  private static async sendRound(now: Date) {
     const due = await db.select().from(campaignEnrolments).where(and(
       eq(campaignEnrolments.status, 'active'), lte(campaignEnrolments.nextSendAt, now),
     )).orderBy(asc(campaignEnrolments.nextSendAt)).limit(MAX_PER_ROUND);
@@ -211,7 +239,8 @@ export class CampaignsService {
     const seqIds = [...new Set(due.map((d) => d.sequenceId))];
     const seqs = new Map((await db.select().from(campaignSequences).where(inArray(campaignSequences.id, seqIds))).map((s) => [s.id, s]));
     const steps = await db.select().from(campaignSteps).where(inArray(campaignSteps.sequenceId, seqIds)).orderBy(asc(campaignSteps.day));
-    let sent = 0;
+
+    const groups = new Map<string, { seq: typeof campaignSequences.$inferSelect; step: typeof campaignSteps.$inferSelect; list: typeof due }>();
     for (const e of due) {
       const seq = seqs.get(e.sequenceId);
       if (!seq?.active) continue; // switched off: wait
@@ -219,31 +248,94 @@ export class CampaignsService {
       if (closed) { await this.stopEnrolment(e.id, closed); continue; }
       const mine = steps.filter((s) => s.sequenceId === e.sequenceId);
       if (!mine.length) continue;
-      // After the last step: repeat it every N days (if set)
-      const step = mine[Math.min(e.stepsSent, mine.length - 1)];
       if (e.stepsSent >= mine.length && !seq.repeatEveryDays) { await this.stopEnrolment(e.id, 'finished'); continue; }
-      const values: Record<CampaignParam, string> = { name: e.name || 'there', company: e.company || e.name || '-', category: e.category || '-', subcategory: e.subcategory || e.category || '-' };
-      const r = await WhatsAppService.sendBodyTemplate(e.phone, step.templateName, step.language, (step.params as CampaignParam[]).map((p) => values[p] ?? '-'));
-      await db.insert(campaignMessages).values({ enrolmentId: e.id, day: step.day, templateName: step.templateName, kind: r.success ? 'sent' : 'failed', error: r.success ? null : r.error ?? 'Not sent' });
-      if (!r.success) {
-        // Try again next round, at most a day later
-        await db.update(campaignEnrolments).set({ lastError: r.error ?? 'Not sent', nextSendAt: new Date(Date.now() + 6 * 3600 * 1000) }).where(eq(campaignEnrolments.id, e.id));
-        logger.warn({ enrolmentId: e.id, template: step.templateName, error: r.error }, '[Campaigns] Send failed');
+      // After the last step: repeat it every N days
+      const step = mine[Math.min(e.stepsSent, mine.length - 1)];
+      const key = `${seq.id}:${step.id}`;
+      if (!groups.has(key)) groups.set(key, { seq, step, list: [] });
+      groups.get(key)!.list.push(e);
+    }
+
+    let sent = 0;
+    for (const { seq, step, list } of groups.values()) {
+      const mine = steps.filter((s) => s.sequenceId === seq.id);
+      const params = step.params as CampaignParam[];
+      const receivers = list.map((e) => ({
+        to: e.phone,
+        variables: { name: e.name || 'there', company: e.company || e.name || '-', category: e.category || '-', subcategory: e.subcategory || e.category || '-' },
+      }));
+      const day = new Date(now).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: env.WORK_TIMEZONE });
+      let waauId: string | null = null;
+      let error: string | null = null;
+      try {
+        const r = await this.waau('POST', '/crm/campaign', {
+          receivers,
+          title: `Work OS · ${seq.category} · Day ${step.day} · ${day}`.slice(0, 120),
+          channel: env.WAAU_CAMPAIGN_CHANNEL_ID,
+          action: 'trigger',
+          mode: 'immediate',
+          schedule: 0,
+          messages: [{
+            type: 'template',
+            template: {
+              language: { policy: 'deterministic', code: step.language || 'en' },
+              name: step.templateName,
+              components: params.length ? [{ type: 'body', parameters: params.map((p) => ({ type: 'text', text: `{{${p}}}` })) }] : [],
+            },
+          }],
+        });
+        waauId = String(r?.id ?? r?.data?._id ?? r?.data?.id ?? '') || null;
+      } catch (err) {
+        error = err instanceof Error ? err.message : 'Not sent';
+      }
+
+      if (error) {
+        for (const e of list) {
+          await db.insert(campaignMessages).values({ enrolmentId: e.id, day: step.day, templateName: step.templateName, kind: 'failed', error });
+          // Try again in a few hours
+          await db.update(campaignEnrolments).set({ lastError: error, nextSendAt: new Date(Date.now() + 6 * 3600 * 1000) }).where(eq(campaignEnrolments.id, e.id));
+        }
+        logger.warn({ sequence: seq.category, template: step.templateName, count: list.length, error }, '[Campaigns] Bulk campaign refused');
         continue;
       }
-      sent++;
-      const stepsSent = e.stepsSent + 1;
-      const next = mine[stepsSent];
-      const nextSendAt = next
-        ? new Date(e.enrolledAt.getTime() + (next.day - 1) * DAY)
-        : seq.repeatEveryDays ? new Date(now.getTime() + seq.repeatEveryDays * DAY) : null;
-      await db.update(campaignEnrolments).set({ stepsSent, lastSentAt: now, lastError: null, nextSendAt, ...(nextSendAt ? {} : { status: 'stopped' as const, stopReason: 'finished' as const, stoppedAt: now }) })
-        .where(eq(campaignEnrolments.id, e.id));
-      if (e.kind === 'lead') {
-        await db.insert(leadActivity).values({ tenantId: e.tenantId, leadId: e.refId, actorId: null, kind: 'whatsapp', body: `${e.category} campaign: sent the Day ${step.day} message (${step.templateName})`, meta: { via: 'campaign' } });
+
+      const [batch] = await db.insert(campaignBatches).values({
+        tenantId: seq.tenantId, sequenceId: seq.id, day: step.day, templateName: step.templateName, waauCampaignId: waauId, recipients: list.length,
+      }).returning();
+      for (const e of list) {
+        sent++;
+        const stepsSent = e.stepsSent + 1;
+        const next = mine[stepsSent];
+        const nextSendAt = next
+          ? new Date(e.enrolledAt.getTime() + (next.day - 1) * DAY)
+          : seq.repeatEveryDays ? new Date(now.getTime() + seq.repeatEveryDays * DAY) : null;
+        await db.insert(campaignMessages).values({ batchId: batch.id, enrolmentId: e.id, day: step.day, templateName: step.templateName, kind: 'sent' });
+        await db.update(campaignEnrolments).set({ stepsSent, lastSentAt: now, lastError: null, nextSendAt, ...(nextSendAt ? {} : { status: 'stopped' as const, stopReason: 'finished' as const, stoppedAt: now }) })
+          .where(eq(campaignEnrolments.id, e.id));
+        if (e.kind === 'lead') {
+          await db.insert(leadActivity).values({ tenantId: e.tenantId, leadId: e.refId, actorId: null, kind: 'whatsapp', body: `${e.category} campaign: sent the Day ${step.day} message (${step.templateName})`, meta: { via: 'campaign', waauCampaignId: waauId } });
+        }
       }
+      logger.info({ sequence: seq.category, day: step.day, recipients: list.length, waauId }, '[Campaigns] Bulk campaign sent');
     }
     if (sent) logger.info({ due: due.length, sent }, '[Campaigns] Messages sent');
+  }
+
+  /** WAAU report counts for campaigns sent in the last 3 days (at most once an hour each) */
+  private static async refreshReports() {
+    const since = new Date(Date.now() - 3 * DAY);
+    const stale = new Date(Date.now() - 3600 * 1000);
+    const batches = await db.select().from(campaignBatches).where(and(
+      sql`${campaignBatches.waauCampaignId} is not null`, sql`${campaignBatches.createdAt} >= ${since}`,
+      sql`(${campaignBatches.reportAt} is null or ${campaignBatches.reportAt} < ${stale})`,
+    )).limit(10);
+    for (const b of batches) {
+      const r = await this.waau('GET', `/crm/campaign/${encodeURIComponent(b.waauCampaignId!)}/report`).catch(() => null);
+      const rows: any[] = Array.isArray(r?.report) ? r.report : [];
+      const sum = (k: string) => rows.reduce((a, x) => a + (Number(x?.report?.[k]) || 0), 0);
+      await db.update(campaignBatches).set({ sent: sum('sent'), delivered: sum('delivered'), read: sum('read'), replied: sum('replied'), failed: sum('failed'), reportAt: new Date() })
+        .where(eq(campaignBatches.id, b.id));
+    }
   }
 
   // ─── Replies ────────────────────────────────────────────────────────────────

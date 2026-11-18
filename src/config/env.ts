@@ -76,6 +76,8 @@ const envSchema = z.object({
   WHATSAPP_TASK_LOW_TEMPLATE: z.string().optional().default('task_balance_update'),
   // Category campaigns: the sales team's alert when a contact taps Interested / Book a demo (to LOW_BALANCE_ALERT_NUMBERS)
   WHATSAPP_CAMPAIGN_SALES_TEMPLATE: z.string().optional().default('campaign_interest_alert'),
+  // The WAAU channel the campaigns go out from (Intellijohn Labs, 919048338111), used by the Bulk Campaign API
+  WAAU_CAMPAIGN_CHANNEL_ID: z.string().optional().default('68ccfa5fe70660c0e8ebbc76'),
   // The TASK add-on that adds tasks to a client ("External task x 1000"), and how long it is subscribed for
   TASK_ADDON_PLAN_ID: z.string().optional().default('686e5c147d39c46e0f4f98e1'),
   TASK_ADDON_TASKS: z.coerce.number().min(1).optional().default(1000),

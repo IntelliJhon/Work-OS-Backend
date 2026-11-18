@@ -52,8 +52,27 @@ export const campaignEnrolments = pgTable('campaign_enrolments', {
   stoppedAt: timestamp('stopped_at', { withTimezone: true }),
 });
 
+/** One WAAU bulk campaign: the contacts due the same message in one round (migration 0058) */
+export const campaignBatches = pgTable('campaign_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  sequenceId: uuid('sequence_id').references(() => campaignSequences.id, { onDelete: 'cascade' }).notNull(),
+  day: integer('day').notNull(),
+  templateName: varchar('template_name', { length: 120 }).notNull(),
+  waauCampaignId: varchar('waau_campaign_id', { length: 64 }),
+  recipients: integer('recipients').notNull(),
+  sent: integer('sent').default(0).notNull(),
+  delivered: integer('delivered').default(0).notNull(),
+  read: integer('read').default(0).notNull(),
+  replied: integer('replied').default(0).notNull(),
+  failed: integer('failed').default(0).notNull(),
+  reportAt: timestamp('report_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const campaignMessages = pgTable('campaign_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
+  batchId: uuid('batch_id').references(() => campaignBatches.id, { onDelete: 'set null' }),
   enrolmentId: uuid('enrolment_id').references(() => campaignEnrolments.id, { onDelete: 'cascade' }).notNull(),
   day: integer('day').notNull(),
   templateName: varchar('template_name', { length: 120 }).notNull(),
