@@ -4,6 +4,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { db } from '../../db';
 import { clientEnquiries } from '../../db/schema/client_enquiries';
+import { clientOnboarding } from '../../db/schema/client_onboarding';
 import { eq, and, desc } from 'drizzle-orm';
 import { logger } from '../../config/logger';
 
@@ -178,6 +179,50 @@ export class ClientEnquiriesController {
     } catch (err: any) {
       logger.error({ msg: 'ClientEnquiriesController.update error', error: err.message });
       return res.status(500).json({ error: 'Failed to update enquiry client' });
+    }
+  }
+
+  /**
+   * Move an enquiry to Onboarding Clients (keeps its id). Its campaign stops on the next round, because the
+   * enquiry no longer exists.
+   */
+  static async moveToOnboarding(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.user?.tenantId;
+      const id = String(req.params.id);
+      if (!tenantId || !id) {
+        return res.status(400).json({ error: 'Missing tenant or enquiry ID' });
+      }
+
+      const moved = await db.transaction(async (tx) => {
+        const [e] = await tx.select().from(clientEnquiries)
+          .where(and(eq(clientEnquiries.id, id), eq(clientEnquiries.tenantId, tenantId))).limit(1);
+        if (!e) return null;
+        const [taken] = await tx.select({ id: clientOnboarding.id }).from(clientOnboarding).where(eq(clientOnboarding.id, e.id)).limit(1);
+        const [row] = await tx.insert(clientOnboarding).values({
+          ...(taken ? {} : { id: e.id }),
+          tenantId,
+          clientName: e.clientName,
+          email: e.email,
+          phone: e.number,
+          notes: e.remarks,
+          category: e.category,
+          subcategory: e.subcategory,
+          usesSoftware: e.usesSoftware,
+          softwareName: e.softwareName,
+          createdBy: e.createdBy,
+        }).returning();
+        await tx.delete(clientEnquiries).where(eq(clientEnquiries.id, e.id));
+        return row;
+      });
+
+      if (!moved) {
+        return res.status(404).json({ error: 'Enquiry client record not found' });
+      }
+      return res.json({ success: true, data: moved });
+    } catch (err: any) {
+      logger.error({ msg: 'ClientEnquiriesController.moveToOnboarding error', error: err.message });
+      return res.status(500).json({ error: 'Failed to move the enquiry to Onboarding Clients' });
     }
   }
 
